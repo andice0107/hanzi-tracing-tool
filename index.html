@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>小學生習寫簿・虛線描寫字工具</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+:root{--blue:#0b6fa4;--sel:#ffd54f;--bg:#f3f5f7}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Microsoft JhengHei","Noto Sans TC",sans-serif;background:var(--bg);color:#222}
+header{background:#fff;border-bottom:2px solid var(--blue);padding:10px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:50}
+header h1{font-size:18px;margin:0;color:var(--blue)}
+header .sub{font-size:12px;color:#666}
+button{cursor:pointer;border:1px solid var(--blue);background:#fff;color:var(--blue);border-radius:8px;padding:6px 12px;font-size:13px}
+button.primary{background:var(--blue);color:#fff}
+button:disabled{opacity:.45;cursor:not-allowed}
+button.small{padding:3px 8px;font-size:12px}
+#layout{display:flex;gap:12px;padding:12px;height:calc(100vh - 62px)}
+#left{width:210px;background:#fff;border-radius:12px;padding:10px;overflow:auto;flex-shrink:0}
+#center{flex:1;background:#fff;border-radius:12px;padding:10px;overflow:auto;display:flex;flex-direction:column;align-items:center}
+#right{width:340px;background:#fff;border-radius:12px;padding:12px;overflow:auto;flex-shrink:0}
+.page-tab{display:flex;gap:6px;align-items:center;border:1px solid #ddd;border-radius:8px;padding:6px;margin-bottom:6px;cursor:pointer;font-size:12px}
+.page-tab.active{border-color:var(--blue);background:#e8f4fb}
+.page-tab img{width:44px;height:60px;object-fit:contain;background:#fff;border:1px solid #eee}
+#viewerWrap{position:relative;background:#fff;border:2px solid #0b6fa4;display:inline-block;max-width:100%}
+#pageImg{display:block;max-width:100%;height:auto;user-select:none}
+#overlay{position:absolute;left:0;top:0;pointer-events:none}
+#cellLayer{position:absolute;left:0;top:0;width:100%;height:100%}
+.cell{position:absolute;border:1.5px solid rgba(255,180,0,.0);pointer-events:auto;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:10px;overflow:hidden}
+/* 亮光區：自動偵測到的空白格 */
+.cell.auto{border-color:rgba(0,200,255,.9);background:rgba(0,220,255,.14);box-shadow:0 0 8px rgba(0,210,255,.9)}
+.cell.selected{border-color:#ff9800;background:rgba(255,213,79,.35);box-shadow:0 0 12px 3px rgba(255,180,0,.95)}
+.cell.filled{border-color:rgba(150,150,150,.75);background:rgba(160,160,160,.15)} /* 有字範例格：框出但不預選 */
+.cell .tag{position:absolute;top:0;left:0;font-size:10px;background:rgba(0,0,0,.65);color:#fff;padding:0 4px;border-radius:0 0 6px 0;pointer-events:none}
+.cell .ch{pointer-events:none;font-weight:700;text-shadow:0 0 3px #fff}
+.row{display:flex;gap:6px;align-items:center;margin:6px 0;flex-wrap:wrap}
+label{font-size:12px}
+input[type=text],input[type=number],select,textarea{border:1px solid #bbb;border-radius:6px;padding:4px 6px;font-size:13px;width:100%}
+input[type=color]{width:44px;height:28px;padding:0;border:none}
+input[type=range]{width:110px}
+h3{font-size:14px;margin:14px 0 6px;color:var(--blue);border-left:4px solid var(--blue);padding-left:6px}
+.hint{font-size:12px;color:#555;background:#fffbe6;border:1px solid #ffe082;border-radius:8px;padding:8px;margin:8px 0}
+table.cellsel{width:100%;border-collapse:collapse;font-size:12px}
+table.cellsel th,table.cellsel td{border:1px solid #ddd;padding:3px}
+table.cellsel input{width:100%;font-size:12px}
+#dragRect{position:absolute;border:2px dashed #f00;background:rgba(255,0,0,.12);display:none;pointer-events:none}
+.a4badge{font-size:12px;background:#0b6fa4;color:#fff;border-radius:6px;padding:2px 8px}
+kbd{background:#eee;border:1px solid #ccc;border-radius:4px;padding:0 4px;font-size:11px}
+#dropHint{position:fixed;inset:0;z-index:999;display:none;align-items:center;justify-content:center;flex-direction:column;gap:10px;background:rgba(11,111,164,.88);color:#fff;font-size:26px;font-weight:700;text-align:center;padding:20px}
+#dropHint.show{display:flex}
+#dropHint span{font-size:15px;font-weight:400;opacity:.95}
+</style>
+</head>
+<body>
+<header>
+<h1>習寫簿虛線描寫工具</h1><span class="sub">上傳 PDF / 截圖 → 自動標出空白格（亮光區）→ 點選要描寫的格 → 輸字 → 微調 → 匯出直式 A4 PDF / 圖片（原圖只加虛線，不做其他變更）</span>
+<span class="a4badge">直式 A4 輸出</span>
+</header>
+<div id="layout">
+<div id="left">
+<h3>1. 上傳作業簿內頁</h3>
+<div class="row"><button class="primary" id="btnUpload">📤 上傳 PDF / 圖片</button></div>
+<input type="file" id="fileInput" accept=".pdf,.png,.jpg,.jpeg,.webp" multiple hidden>
+<div class="hint">支援：多檔、PDF 多頁自動拆頁、截圖。每一頁會變成下方一個分頁，可逐頁編輯。<br>也可以<b>直接把檔案拖進視窗</b>放開上傳（PDF / 圖片）。<br>輸出時自動以直式 A4 置中套版。</div>
+<div id="pageList"></div>
+<h3>2. 字體庫</h3>
+<div class="hint">「<b>內建漢字 / 注音虛線字體</b>」永遠保留在庫內（網站已內建文鼎標楷虛線國字、文鼎虛線注音，開啟自動載入為預設）。你也可另外上傳自備字體（<kbd>.ttf</kbd> / <kbd>.otf</kbd> / <kbd>.woff2</kbd> / <kbd>.ttc</kbd>）隨時切換，字體檔一樣可以直接拖進視窗上傳。<br>上傳時檔名含「注音」會自動歸到注音格字體，其餘歸到漢字格字體，之後都可在下拉選單改。</div>
+<div class="row"><button id="btnFontUpload" class="small">＋上傳自備字體 (.ttf/.otf/.woff2/.ttc)</button></div>
+<input type="file" id="fontInput" accept=".ttf,.otf,.woff,.woff2,.ttc,.otc" hidden>
+<div class="row"><label>漢字格字體</label><select id="fontHanziSel"></select></div>
+<div class="row"><label>注音格字體</label><select id="fontZhuyinSel"></select></div>
+<div id="fontList" style="font-size:12px"></div>
+</div>
+<div id="center">
+<div class="row" style="width:100%;justify-content:space-between">
+<div><b id="pageTitle">尚未上傳</b> <span id="cellCount" style="font-size:12px;color:#666"></span></div>
+<div class="row">
+<button class="small" id="btnAuto">🔍 自動掃描田字格</button>
+<button class="small" id="btnManual">✏️ 手動框選補格</button>
+<button class="small" id="btnClearCells">🗑 清除本頁格子</button>
+</div>
+</div>
+<div class="row" style="font-size:12px">靈敏度 <input type="range" id="sens" min="1" max="10" value="5"> <span id="sensV">5</span> ｜ 以「田字格」為單位（四小方格＋十字虛線＝一格，虛線只定位、不拆格）。掃不全請用手動框選。</div>
+<div id="viewerWrap">
+<img id="pageImg" alt="">
+<canvas id="overlay"></canvas>
+<div id="cellLayer"></div>
+<div id="dragRect"></div>
+</div>
+<div class="hint" style="max-width:820px">操作：<b>點擊田字格＝選取/取消</b>（亮光黃色＝空白格，會產生虛線，一格＝四小方格組成的整個田字格；灰色＝有字範例格，僅框出不預選，需要也可點選加入）。漢字大格 / 右側窄注音格 / 純注音格（小一）會依寬高比自動分類，分類錯可下拉更正。右側面板可填字、微調位置大小、調顏色粗細，即時預覽虛線底稿。</div>
+<div class="row">
+<button id="btnSelAll">全選田字格</button>
+<button id="btnSelNone">取消全選</button>
+<button id="btnSelHanzi" class="small">只選漢字格</button>
+<button id="btnSelZhuyin" class="small">只選注音格</button>
+<button id="btnSelBlank" class="small">只選空白格</button>
+<button id="btnCopyUp" class="small">從上一列複製（描上一列）</button>
+</div>
+</div>
+<div id="right">
+<h3>3. 本頁選取格內容（虛線要寫什麼字）</h3>
+<div class="row"><label>快速依序填入漢字串（直式順序：由右而左、由上而下）：</label><input type="text" id="quickHanzi" placeholder="例：讓我走細雨"></div>
+<div class="row"><button class="small" id="btnQuickFill">依序填入</button><button class="small" id="btnClearText">清空所選文字</button></div>
+<div style="max-height:220px;overflow:auto"><table class="cellsel"><thead><tr><th>#</th><th>類型</th><th>漢字/注音內容</th><th>注音(右側/純注音)</th></tr></thead><tbody id="selTable"></tbody></table></div>
+<h3>4. 虛線微調</h3>
+<div class="row"><label>漢字大小</label><input type="range" id="gScaleH" min="50" max="130" value="92"><span id="gScaleHV">92%</span></div>
+<div class="row"><label>注音大小</label><input type="range" id="gScaleZ" min="50" max="160" value="100"><span id="gScaleZV">100%</span></div>
+<div class="row"><label>X偏移</label><input type="range" id="gDx" min="-30" max="30" value="0"><span id="gDxV">0</span>
+<label>Y偏移</label><input type="range" id="gDy" min="-30" max="30" value="0"><span id="gDyV">0</span></div>
+<div class="row"><label>虛線顏色</label><input type="color" id="inkColor" value="#7fb9d9"><label>不透明</label><input type="range" id="inkAlpha" min="20" max="100" value="85"><span id="inkAlphaV">85%</span></div>
+<div class="row"><label>粗細(描邊)</label><input type="range" id="inkWidth" min="0" max="6" value="1" step="0.5"><span id="inkWidthV">1</span>
+<label>樣式</label><select id="inkStyle"><option value="fill">填色（有虛線字體時建議）</option><option value="dash">虛線描邊模擬（無字體時用）</option><option value="both">填色+虛線描邊</option></select></div>
+<div class="hint">若你尚未載入虛線字體，建議選「虛線描邊模擬」，工具會用虛線筆觸畫出字形，仍可交作業。若已載入附件虛線字體，選「填色」效果最像印刷描紅本。</div>
+<h3>5. 匯出（原圖＋虛線，不動其他）</h3>
+<div class="row"><button class="primary" id="btnPDF">⬇ 匯出直式 A4 PDF（全部頁）</button></div>
+<div class="row"><button id="btnPNG">⬇ 匯出本頁 PNG</button><button id="btnPNGAll">⬇ 匯出全部 PNG</button></div>
+<div class="hint" id="exportMsg">匯出時：原上傳畫面 1:1 保留、置中放入直式 A4，其餘留白，只疊加你選取格的虛線字。</div>
+<h3>手動補格</h3>
+<div class="row"><label>列</label><input type="number" id="mRows" value="5" style="width:60px"><label>欄</label><input type="number" id="mCols" value="7" style="width:60px"></div>
+<div class="row"><label>欄型</label><select id="mPattern"><option value="hanzi">全部漢字大格</option><option value="hanzi-zhuyin">漢字+右側注音交替（大+窄）</option><option value="zhuyin">全部純注音格</option></select></div>
+<div class="hint">手動流程：按「手動框選補格」→ 在圖上拖曳 → 放開後依此列欄數自動切成田字格。各家版本排版不同時用此法最穩。</div>
+</div>
+</div>
+<div id="dropHint">📥 放開以加入檔案<span>PDF / 圖片 → 新增作業內頁分頁　・　字體檔（.ttf / .otf / .woff2 / .ttc）→ 加入字體庫</span></div>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+const S={pages:[],cur:-1,fonts:[{id:"builtin-hanzi",name:"內建漢字虛線字體",family:"BuiltinHanzi",locked:true,loaded:false},{id:"builtin-zhuyin",name:"內建注音虛線字體",family:"BuiltinZhuyin",locked:true,loaded:false}],fontFamHanzi:"BuiltinHanzi",fontFamZhuyin:"BuiltinZhuyin",manualMode:false};
+const $=id=>document.getElementById(id);
+const fileInput=$("fileInput"),fontInput=$("fontInput");
+// ---------- 字體（漢字格 / 注音格可各選一種） ----------
+function refreshFonts(){for(const[selId,key]of[["fontHanziSel","fontFamHanzi"],["fontZhuyinSel","fontFamZhuyin"]]){const s=$(selId);s.innerHTML="";S.fonts.forEach(f=>{const o=document.createElement("option");o.value=f.id;o.textContent=f.name+(f.loaded?" ●":" ○未載入");s.appendChild(o)});const cur=S.fonts.find(x=>x.family===S[key]);s.value=cur?cur.id:""}
+$("fontList").innerHTML=S.fonts.map(f=>`• ${f.name} ${f.loaded?'<b style="color:green">已載入</b>':'<b style="color:#c00">未載入</b>'} ${f.locked?'(內建保留)':`<button class="small" data-delfont="${f.id}">刪</button>`}`).join("<br>");
+document.querySelectorAll("[data-delfont]").forEach(b=>b.onclick=()=>{const i=S.fonts.findIndex(x=>x.id===b.dataset.delfont);if(i>=0&&!S.fonts[i].locked){const fam=S.fonts[i].family;if(S.fontFamHanzi===fam)S.fontFamHanzi="BuiltinHanzi";if(S.fontFamZhuyin===fam)S.fontFamZhuyin="BuiltinZhuyin";S.fonts.splice(i,1);refreshFonts();render();}})}
+$("fontHanziSel").onchange=e=>{const f=S.fonts.find(x=>x.id===e.target.value);if(f){S.fontFamHanzi=f.family;refreshFonts();render();}};
+$("fontZhuyinSel").onchange=e=>{const f=S.fonts.find(x=>x.id===e.target.value);if(f){S.fontFamZhuyin=f.family;refreshFonts();render();}};
+$("btnFontUpload").onclick=()=>fontInput.click();
+fontInput.onchange=async e=>{for(const file of e.target.files){await loadFontFile(file)}fontInput.value="";};
+function isFontFile(f){return /\.(ttf|otf|woff2?|ttc|otc)$/i.test(f.name||"")}
+function isPdfFile(f){return (f.type==="application/pdf")||/\.pdf$/i.test(f.name||"")}
+function isImgFile(f){return /^image\//.test(f.type||"")||/\.(png|jpe?g|webp|bmp|gif)$/i.test(f.name||"")}
+// 讀 TTC 合集內含幾套字（檔頭 ttcf + numFonts），非合集回傳 1
+function ttcFaceCount(buf){try{const v=new DataView(buf);const tag=String.fromCharCode(v.getUint8(0),v.getUint8(1),v.getUint8(2),v.getUint8(3));if(tag!=="ttcf")return 1;return v.getUint32(8,false)||1}catch(e){return 1}}
+async function loadFontFile(file){if(!isFontFile(file)){alert("不支援的字體格式："+file.name+"\n請使用 .ttf / .otf / .woff / .woff2 / .ttc");return}
+const buf=await file.arrayBuffer();const fam="Custom_"+Date.now()+"_"+Math.floor(Math.random()*9999);
+const isColl=/\.(ttc|otc)$/i.test(file.name);let label=file.name;
+if(isColl){const n=ttcFaceCount(buf);label=`${file.name}（合集${n}套・取預設字重）`}
+try{const ff=new FontFace(fam,buf);await ff.load();document.fonts.add(ff);
+S.fonts.push({id:fam,name:label,family:fam,locked:false,loaded:true});
+// 檔名含「注音」歸注音格，否則歸漢字格
+if(/注音|zhuyin|bopomofo|ㄅ/i.test(file.name))S.fontFamZhuyin=fam;else S.fontFamHanzi=fam;
+}catch(err){alert("字體載入失敗："+file.name+"\n"+err);return}
+refreshFonts();render();}
+// 預設字體：fonts/builtin-hanzi.* → 漢字格，fonts/builtin-zhuyin.* → 注音格（舊版單一內建字體自動沿用給兩格）
+async function loadBuiltinInto(family,urls){for(const u of urls){try{const r=await fetch(u);if(!r.ok)continue;const b=await r.arrayBuffer();const ff=new FontFace(family,b);await ff.load();document.fonts.add(ff);return true;}catch(e){}}return false}
+async function tryBuiltin(){
+const H=["fonts/builtin-hanzi.ttf","fonts/builtin-hanzi.ttc","fonts/builtin-hanzi.woff2","builtin-hanzi.ttf","builtin-hanzi.ttc","builtin-hanzi.woff2"];
+const Z=["fonts/builtin-zhuyin.ttc","fonts/builtin-zhuyin.ttf","fonts/builtin-zhuyin.woff2","builtin-zhuyin.ttc","builtin-zhuyin.ttf","builtin-zhuyin.woff2"];
+const L=["builtin-tracing.ttf","builtin-tracing.woff2","builtin-tracing.woff","builtin-tracing.ttc","虛線字體.ttf","虛線字體.ttc"];
+let h=await loadBuiltinInto("BuiltinHanzi",H),z=await loadBuiltinInto("BuiltinZhuyin",Z);
+if(!h||!z){for(const u of L){try{const r=await fetch(u);if(!r.ok)continue;const b=await r.arrayBuffer();
+if(!h){try{const f1=new FontFace("BuiltinHanzi",b);await f1.load();document.fonts.add(f1);h=true;}catch(e){}}
+if(!z){try{const f2=new FontFace("BuiltinZhuyin",b);await f2.load();document.fonts.add(f2);z=true;}catch(e){}}
+if(h&&z)break;}catch(e){}}}
+const fh=S.fonts.find(f=>f.id==="builtin-hanzi"),fz=S.fonts.find(f=>f.id==="builtin-zhuyin");
+if(fh)fh.loaded=h;if(fz)fz.loaded=z;
+refreshFonts();render();}
+Promise.all([document.fonts.load('16px "BuiltinHanzi"'),document.fonts.load('16px "BuiltinZhuyin"')]).catch(()=>{});
+// ---------- 上傳（含拖拉） ----------
+$("btnUpload").onclick=()=>fileInput.click();
+fileInput.onchange=async e=>{await handlePageFiles([...e.target.files]);fileInput.value="";};
+async function handlePageFiles(files){let n=0;for(const f of files){try{if(isPdfFile(f)){await addPDF(f);n++}else if(isImgFile(f)){await addImageFile(f);n++}}catch(err){alert("檔案讀取失敗："+f.name+"\n"+err)}}
+if(!n){alert("沒有可加入的作業檔（請拖入 PDF 或圖片）");return}
+renderList();if(S.cur<0&&S.pages.length)switchPage(0);}
+// 全視窗拖拉上傳：PDF/圖片 → 內頁分頁；字體檔 → 字體庫
+let dragDepth=0;
+window.addEventListener("dragenter",e=>{e.preventDefault();if(e.dataTransfer?.types?.includes("Files")){dragDepth++;$("dropHint").classList.add("show")}});
+window.addEventListener("dragover",e=>{e.preventDefault()});
+window.addEventListener("dragleave",e=>{e.preventDefault();dragDepth=Math.max(0,dragDepth-1);if(!dragDepth)$("dropHint").classList.remove("show")});
+window.addEventListener("drop",async e=>{e.preventDefault();dragDepth=0;$("dropHint").classList.remove("show");
+const files=[...(e.dataTransfer?.files||[])];if(!files.length)return;
+const fonts=files.filter(isFontFile),pages=files.filter(f=>!isFontFile(f)&&(isPdfFile(f)||isImgFile(f)));
+const others=files.filter(f=>!isFontFile(f)&&!isPdfFile(f)&&!isImgFile(f));
+for(const f of fonts){await loadFontFile(f)}
+if(pages.length)await handlePageFiles(pages);
+if(others.length)alert("略過不支援的檔案：\n"+others.map(f=>f.name).join("\n")+"\n\n作業內頁請用 PDF / 圖片，字體請用 .ttf / .otf / .woff2 / .ttc");});
+function loadImg(src){return new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=src})}
+async function addImageFile(f){const url=URL.createObjectURL(f);const img=await loadImg(url);S.pages.push({name:f.name,img,cells:[],w:img.naturalWidth,h:img.naturalHeight})}
+async function addPDF(f){const buf=await f.arrayBuffer();const pdf=await pdfjsLib.getDocument({data:buf}).promise;for(let p=1;p<=pdf.numPages;p++){const page=await pdf.getPage(p);const vp=page.getViewport({scale:2});const cv=document.createElement("canvas");cv.width=vp.width;cv.height=vp.height;await page.render({canvasContext:cv.getContext("2d"),viewport:vp}).promise;const img=await loadImg(cv.toDataURL("png"));S.pages.push({name:`${f.name}#p${p}`,img,cells:[],w:img.naturalWidth,h:img.naturalHeight})}}
+function renderList(){const L=$("pageList");L.innerHTML="";S.pages.forEach((p,i)=>{const d=document.createElement("div");d.className="page-tab"+(i===S.cur?" active":"");d.innerHTML=`<img src="${p.img.src}"><div><b>${i+1}. ${p.name}</b><br>${p.cells.length} 田字格 / ${p.cells.filter(c=>c.selected).length} 已選</div>`;d.onclick=()=>switchPage(i);L.appendChild(d)})}
+function switchPage(i){S.cur=i;const p=S.pages[i];if(!p)return;$("pageTitle").textContent=`第 ${i+1} 頁 / 共 ${S.pages.length} 頁 — ${p.name}`;$("pageImg").src=p.img.src;renderList();$("pageImg").onload=()=>{buildCells();render()}}
+// ---------- 顯示/疊加 ----------
+// 直式排序：國語作業由右而左、由上而下。欄由右排到左，欄內由上而下
+function sortCellsVertical(p){if(!p.cells.length)return;
+const ws=p.cells.map(c=>c.w).sort((a,b)=>a-b);const medW=ws[Math.floor(ws.length/2)]||20;
+const tol=Math.max(8,medW*0.4);
+const colC=[];for(const c of p.cells){const cx=c.x+c.w/2;let g=colC.find(g=>Math.abs(g-cx)<=tol);if(g===undefined){colC.push(cx)}}
+colC.sort((a,b)=>b-a); // 右→左
+p.cells.forEach(c=>{const cx=c.x+c.w/2;let bi=0,bd=1e18;colC.forEach((g,i)=>{const dd=Math.abs(g-cx);if(dd<bd){bd=dd;bi=i}});c._col=bi});
+p.cells.sort((a,b)=>(a._col-b._col)||(a.y-b.y)||(a.x-b.x));
+p.cells.forEach(c=>delete c._col)}
+const pageImg=$("pageImg"),overlay=$("overlay"),cellLayer=$("cellLayer");
+function viewScale(){return pageImg.clientWidth/pageImg.naturalWidth||1}
+function buildCells(){cellLayer.innerHTML="";const p=S.pages[S.cur];if(!p)return;const s=viewScale();overlay.width=pageImg.clientWidth;overlay.height=pageImg.clientHeight;p.cells.forEach((c,idx)=>{const d=document.createElement("div");const cls=c.selected?"selected":(c.auto===true?(c.blank?"auto":"filled"):"auto");d.className="cell "+cls;d.style.left=(c.x*s)+"px";d.style.top=(c.y*s)+"px";d.style.width=(c.w*s)+"px";d.style.height=(c.h*s)+"px";const t=c.type==="hanzi"?"漢":c.type==="side"?"注":"音";d.innerHTML=`<span class="tag">${idx+1}${t}</span><span class="ch">${(c.hanzi||"")+ (c.zhuyin?" "+c.zhuyin:"")}</span>`;d.title=`${idx+1} ${c.type} 點擊選取/取消`;d.onclick=ev=>{ev.stopPropagation();c.selected=!c.selected;buildCells();render();renderSelTable()};cellLayer.appendChild(d)});$("cellCount").textContent=`已框 ${p.cells.length} 個田字格，已選 ${p.cells.filter(c=>c.selected).length} 格`}
+window.addEventListener("resize",()=>{buildCells();render()});
+// ---------- 自動偵測 ----------
+$("sens").oninput=e=>$("sensV").textContent=e.target.value;
+$("btnAuto").onclick=()=>autoDetect();
+function autoDetect(){const p=S.pages[S.cur];if(!p)return alert("請先上傳");
+const sens=+($("sens").value); // 1..10
+const maxW=900,sc=Math.min(1,maxW/p.w);const cw=Math.round(p.w*sc),ch=Math.round(p.h*sc);
+const cv=document.createElement("canvas");cv.width=cw;cv.height=ch;const ctx=cv.getContext("2d",{willReadFrequently:true});ctx.drawImage(p.img,0,0,cw,ch);
+const d=ctx.getImageData(0,0,cw,ch).data;const mask=new Uint8Array(cw*ch);
+const pxAt=(x,y)=>[d[(y*cw+x)*4],d[(y*cw+x)*4+1],d[(y*cw+x)*4+2]];
+for(let y=0;y<ch;y++)for(let x=0;x<cw;x++){const r=d[(y*cw+x)*4],g=d[(y*cw+x)*4+1],b=d[(y*cw+x)*4+2];
+const mn=Math.min(r,g,b),mx=Math.max(r,g,b);
+const paperBg=mn>140&&(mx-mn)<45; // 紙底/淺底（右側淺藍標籤條底色也在此排除，不會拉歪投影）
+if(!paperBg&&((b>90&&b-r>18&&b-g>6)||Math.max(r,g,b)<110))mask[y*cw+x]=1}
+const colP=new Float32Array(cw),rowP=new Float32Array(ch);
+for(let y=0;y<ch;y++)for(let x=0;x<cw;x++)if(mask[y*cw+x]){colP[x]++;rowP[y]++}
+const thX=ch*(0.10+sens*0.035),thY=cw*(0.10+sens*0.035);
+let xs=peaks(colP,thX),ys=peaks(rowP,thY);
+// 過濾太密的碎線
+xs=xs.filter((x,i)=>i===0||x-xs[i-1]>cw*0.008);ys=ys.filter((y,i)=>i===0||y-ys[i-1]>ch*0.008);
+// ★田字格關鍵：區分「實線格界」與「田字格內十字虛線定位線」
+// 用百分位範圍內的密度判斷（抗外框雜散像素）：實線~1.0，虛線~0.55，門檻 0.85
+// 這樣亮光一格＝四小方格組成的整個田字格，不會被拆成四格
+function densX(x){const a=[];for(let y=0;y<ch;y++)if(mask[y*cw+x])a.push(y);if(a.length<8)return 0;const p5=a[Math.floor(a.length*0.05)],p9=a[Math.ceil(a.length*0.95)-1];return Math.min(1,a.length/Math.max(1,p9-p5+1))}
+function densY(y){const a=[];for(let x=0;x<cw;x++)if(mask[y*cw+x])a.push(x);if(a.length<8)return 0;const p5=a[Math.floor(a.length*0.05)],p9=a[Math.ceil(a.length*0.95)-1];return Math.min(1,a.length/Math.max(1,p9-p5+1))}
+const dashX=xs.filter(x=>densX(x)<0.85),dashY=ys.filter(y=>densY(y)<0.85);
+xs=xs.filter(x=>densX(x)>=0.85);ys=ys.filter(y=>densY(y)>=0.85);
+if(xs.length<2||ys.length<2){alert(`自動掃描只找到 ${xs.length} 條垂直實線 / ${ys.length} 條水平實線，請調高靈敏度或改用手動框選。`);return}
+const cells=[];for(let j=0;j<ys.length-1;j++)for(let i=0;i<xs.length-1;i++){let x0=xs[i]/sc,y0=ys[j]/sc,w=(xs[i+1]-xs[i])/sc,h=(ys[j+1]-ys[j])/sc;if(w<14||h<14)continue;if(w>p.w*0.5||h>p.h*0.4)continue;const ar=w/h;let type=ar<0.62?"side":"hanzi";cells.push({x:x0,y:y0,w,h,type,selected:false,hanzi:"",zhuyin:"",dx:0,dy:0,sc:1,auto:true})}
+// 踢掉訂正大格等非書寫高格（高 > 中位列高 1.8 倍）
+if(cells.length){const hs=cells.map(c=>c.h).sort((a,b)=>a-b);const medH=hs[Math.floor(hs.length/2)]||0;for(let i=cells.length-1;i>=0;i--)if(cells[i].h>medH*1.8)cells.splice(i,1)}
+// 空白判斷：排除十字虛線帶後看殘留墨水 + 虛線帶占空比（揪出壓在虛線上的「一」）
+// 淺底標籤格、有字範例格 → 不預選；純空白田字格/窄注音格 → 自動選取
+function cellStats(c){
+const ax=c.x*sc,ay=c.y*sc,aw=c.w*sc,ah=c.h*sc;
+const ix0=Math.ceil(ax+aw*0.15),ix1=Math.floor(ax+aw*0.85),iy0=Math.ceil(ay+ah*0.15),iy1=Math.floor(ay+ah*0.85);
+let tint=0,tintN=0;
+for(let y=iy0;y<=iy1;y++)for(let x=ix0;x<=ix1;x++){const[r,g,b]=pxAt(x,y);tintN++;if(Math.min(r,g,b)>140&&(Math.max(r,g,b)-Math.min(r,g,b))>=25)tint++}
+tint=tintN?tint/tintN:0;
+const bX=dashX.filter(dx=>dx>=ix0-2&&dx<=ix1+2),bY=dashY.filter(dy=>dy>=iy0-2&&dy<=iy1+2);
+let ink=0,tot=0;
+for(let y=iy0;y<=iy1;y++){const yB=bY.some(dy=>Math.abs(y-dy)<=1);
+for(let x=ix0;x<=ix1;x++){if(yB)continue;if(bX.some(dx=>Math.abs(x-dx)<=1))continue;tot++;if(mask[y*cw+x])ink++}}
+let duty=0;
+for(const dy of bY)for(let r=-1;r<=1;r++){const y=dy+r;if(y<iy0||y>iy1)continue;let m=0,n=0;for(let x=ix0;x<=ix1;x++){n++;if(mask[y*cw+x])m++}if(n)duty=Math.max(duty,m/n)}
+for(const dx of bX)for(let r=-1;r<=1;r++){const x=dx+r;if(x<ix0||x>ix1)continue;let m=0,n=0;for(let y=iy0;y<=iy1;y++){n++;if(mask[y*cw+x])m++}if(n)duty=Math.max(duty,m/n)}
+return{tint,res:tot?ink/tot:0,duty}}
+for(const c of cells){const s=cellStats(c);c.tint=s.tint;c.blank=s.tint<=0.35&&s.res<0.04&&s.duty<0.85;c.selected=!!c.blank}
+// 合併既有（避免重複）：若中心點已在既有格內則跳過
+const kept=[];for(const c of cells){const cx=c.x+c.w/2,cy=c.y+c.h/2;if(p.cells.some(k=>cx>k.x&&cx<k.x+k.w&&cy>k.y&&cy<k.y+k.h))continue;kept.push(c)}
+p.cells.push(...kept);
+// 直式排序：由右而左、由上而下
+sortCellsVertical(p);
+const nBlank=kept.filter(c=>c.blank).length;
+buildCells();render();renderSelTable();renderList();alert(`自動掃描完成：新增 ${kept.length} 個田字格，其中 ${nBlank} 個空白格已自動選取（黃色亮光，會印虛線）；${kept.length-nBlank} 個有字/標籤格僅框出不選（灰色）。訂正大格、標籤條已排除。`)}
+function peaks(arr,th){const out=[];let i=0;while(i<arr.length){if(arr[i]>th){let s=i,e=i,sum=0,w=0;while(e<arr.length&&arr[e]>th*0.5){sum+=arr[e]*e;w+=arr[e];e++}out.push(Math.round(sum/w));i=e}else i++}return out}
+function mergeLines(a){return a} // 保留相容（未使用）
+// ---------- 手動框選 ----------
+let drag=null;
+$("btnManual").onclick=()=>{S.manualMode=!S.manualMode;$("btnManual").textContent=S.manualMode?"❌ 取消框選（拖曳中…）":"✏️ 手動框選補格";$("btnManual").classList.toggle("primary",S.manualMode)};
+cellLayer.style.pointerEvents="auto";
+pageImg.addEventListener("pointerdown",e=>{if(!S.manualMode)return;const r=$("viewerWrap").getBoundingClientRect();drag={x0:e.clientX-r.left,y0:e.clientY-r.top};e.preventDefault()});
+window.addEventListener("pointermove",e=>{if(!drag)return;const r=$("viewerWrap").getBoundingClientRect();const x=e.clientX-r.left,y=e.clientY-r.top;const dr=$("dragRect");dr.style.display="block";dr.style.left=Math.min(drag.x0,x)+"px";dr.style.top=Math.min(drag.y0,y)+"px";dr.style.width=Math.abs(x-drag.x0)+"px";dr.style.height=Math.abs(y-drag.y0)+"px"});
+window.addEventListener("pointerup",e=>{if(!drag)return;const r=$("viewerWrap").getBoundingClientRect();const x=e.clientX-r.left,y=e.clientY-r.top;const rx=Math.min(drag.x0,x),ry=Math.min(drag.y0,y),rw=Math.abs(x-drag.x0),rh=Math.abs(y-drag.y0);$("dragRect").style.display="none";drag=null;if(rw<20||rh<20)return;manualSplit(rx,ry,rw,rh)});
+function manualSplit(rx,ry,rw,rh){const p=S.pages[S.cur];if(!p)return;const s=viewScale();const rows=Math.max(1,+($("mRows").value||1)),cols=Math.max(1,+($("mCols").value||1));const pat=$("mPattern").value;
+const X=rx/s,Y=ry/s,W=rw/s,H=rh/s;const rh_=H/rows;
+if(pat==="hanzi"||pat==="zhuyin"){const cw_=W/cols;for(let r=0;r<rows;r++)for(let c=0;c<cols;c++)p.cells.push({x:X+c*cw_,y:Y+r*rh_,w:cw_,h:rh_,type:pat==="hanzi"?"hanzi":"only",selected:true,hanzi:"",zhuyin:"",dx:0,dy:0,sc:1})}
+else{ // 漢字+右側注音交替：每組=大格+窄格(窄約0.32倍)
+for(let r=0;r<rows;r++){let cx=X;const pairs=Math.floor(cols/2);const rem=cols%2;const unit=W/(pairs*1.32+(rem?1:0));for(let k=0;k<pairs;k++){p.cells.push({x:cx,y:Y+r*rh_,w:unit,h:rh_,type:"hanzi",selected:true,hanzi:"",zhuyin:"",dx:0,dy:0,sc:1});cx+=unit;p.cells.push({x:cx,y:Y+r*rh_,w:unit*0.32,h:rh_,type:"side",selected:true,hanzi:"",zhuyin:"",dx:0,dy:0,sc:1});cx+=unit*0.32}if(rem)p.cells.push({x:cx,y:Y+r*rh_,w:unit,h:rh_,type:"hanzi",selected:true,hanzi:"",zhuyin:"",dx:0,dy:0,sc:1})}}
+S.manualMode=false;$("btnManual").textContent="✏️ 手動框選補格";$("btnManual").classList.remove("primary");sortCellsVertical(p);buildCells();render();renderSelTable();renderList()}
+$("btnClearCells").onclick=()=>{const p=S.pages[S.cur];if(!p)return;if(!confirm("清除本頁全部格子？"))return;p.cells=[];buildCells();render();renderSelTable();renderList()};
+// ---------- 選取 ----------
+$("btnSelAll").onclick=()=>{S.pages[S.cur]?.cells.forEach(c=>c.selected=true);buildCells();render();renderSelTable();renderList()};
+$("btnSelNone").onclick=()=>{S.pages[S.cur]?.cells.forEach(c=>c.selected=false);buildCells();render();renderSelTable();renderList()};
+$("btnSelHanzi").onclick=()=>{S.pages[S.cur]?.cells.forEach(c=>c.selected=(c.type==="hanzi"));buildCells();render();renderSelTable();renderList()};
+$("btnSelZhuyin").onclick=()=>{S.pages[S.cur]?.cells.forEach(c=>c.selected=(c.type!=="hanzi"));buildCells();render();renderSelTable();renderList()};
+$("btnSelBlank").onclick=()=>{S.pages[S.cur]?.cells.forEach(c=>c.selected=(c.auto===true?!!c.blank:!(c.hanzi||c.zhuyin)));buildCells();render();renderSelTable();renderList()};
+$("btnCopyUp").onclick=()=>{const p=S.pages[S.cur];if(!p)return;let n=0;const cs=[...p.cells].sort((a,b)=>a.y-b.y||a.x-b.x);for(const c of cs){if(!c.selected||c.hanzi||c.zhuyin)continue;const above=cs.filter(k=>Math.abs((k.x+k.w/2)-(c.x+c.w/2))<Math.min(k.w,c.w)*0.5&&k.y+k.h<=c.y+2&&(k.hanzi||k.zhuyin)).pop();if(above){c.hanzi=above.hanzi;c.zhuyin=above.zhuyin;n++}}buildCells();render();renderSelTable();alert(n?`已從上一列複製 ${n} 格`:"找不到上方有字的對應格（請先在上一列輸入漢字/注音，或改用快速填入）")};
+// ---------- 內容 ----------
+$("btnQuickFill").onclick=()=>{const p=S.pages[S.cur];if(!p)return;const s=$("quickHanzi").value.replace(/\s+/g,"");if(!s)return alert("請先輸入漢字串");const sel=p.cells.filter(c=>c.selected&&c.type==="hanzi");if(!sel.length)return alert("請先選取漢字格");sel.forEach((c,i)=>{if(i<s.length)c.hanzi=s[i]});buildCells();render();renderSelTable()};
+$("btnClearText").onclick=()=>{S.pages[S.cur]?.cells.forEach(c=>{if(c.selected){c.hanzi="";c.zhuyin=""}});buildCells();render();renderSelTable()};
+function renderSelTable(){const tb=$("selTable");tb.innerHTML="";const p=S.pages[S.cur];if(!p)return;const sel=p.cells.map((c,i)=>({...c,idx:i})).filter(c=>c.selected);if(!sel.length){tb.innerHTML='<tr><td colspan="4" style="color:#888">尚未選取（點圖上亮光格即選取）</td></tr>';return}
+sel.forEach(c=>{const tr=document.createElement("tr");tr.innerHTML=`<td>${c.idx+1}</td><td><select data-t="${c.idx}"><option value="hanzi">漢字</option><option value="side">右注音</option><option value="only">純注音</option></select></td><td><input data-h="${c.idx}" value="${c.hanzi||""}" maxlength="4" placeholder="漢/注音"></td><td><input data-z="${c.idx}" value="${c.zhuyin||""}" maxlength="6" placeholder="ㄅㄆㄇ"></td>`;tb.appendChild(tr)});
+tb.querySelectorAll("[data-t]").forEach(s=>{s.value=p.cells[+s.dataset.t].type; s.onchange=()=>{p.cells[+s.dataset.t].type=s.value;buildCells();render()}});
+tb.querySelectorAll("[data-h]").forEach(inp=>inp.oninput=()=>{p.cells[+inp.dataset.h].hanzi=inp.value;buildCells();render()});
+tb.querySelectorAll("[data-z]").forEach(inp=>inp.oninput=()=>{p.cells[+inp.dataset.z].zhuyin=inp.value;buildCells();render()})}
+// ---------- 渲染虛線 ----------
+["gScaleH","gScaleZ","gDx","gDy","inkAlpha","inkWidth"].forEach(id=>$(id).oninput=()=>{updLabels();render()});
+$("inkColor").oninput=()=>render();$("inkStyle").onchange=()=>render();
+function updLabels(){$("gScaleHV").textContent=$("gScaleH").value+"%";$("gScaleZV").textContent=$("gScaleZ").value+"%";$("gDxV").textContent=$("gDx").value;$("gDyV").textContent=$("gDy").value;$("inkAlphaV").textContent=$("inkAlpha").value+"%";$("inkWidthV").textContent=$("inkWidth").value}
+function drawTracing(ctx,scale){const p=S.pages[S.cur];if(!p)return;ctx.clearRect(0,0,ctx.canvas.width,ctx.canvas.height);const s=ctx.canvas.width/p.w;const col=$("inkColor").value,alpha=+$("inkAlpha").value/100,lw=+$("inkWidth").value,style=$("inkStyle").value,gsH=+$("gScaleH").value/100,gsZ=+$("gScaleZ").value/100,gdx=+$("gDx").value*s,gdy=+$("gDy").value*s;
+ctx.save();p.cells.forEach(c=>{if(!c.selected)return;const txt=c.type==="side"?(c.zhuyin||c.hanzi):(c.type==="only"?(c.zhuyin||c.hanzi):(c.hanzi||""));if(!txt)return;const cx=(c.x+c.w/2)*s+gdx+c.dx*s,cy=(c.y+c.h/2)*s+gdy+c.dy*s;
+const fam=c.type==="hanzi"?S.fontFamHanzi:S.fontFamZhuyin; // 漢字格/注音格各用其字體
+ctx.globalAlpha=alpha;ctx.fillStyle=col;ctx.strokeStyle=col;ctx.lineWidth=lw;ctx.textAlign="center";ctx.textBaseline="middle";
+if(c.type==="hanzi"){const size=Math.min(c.w,c.h)*s*0.88*gsH*c.sc;ctx.font=`${size}px "${fam}", "BiauKai", "DFKai-SB", "KaiU", serif`;strokeFill(ctx,txt,cx,cy,style)}else{// 注音直排：撐滿格寬，並按符號數均分格高
+const n=[...txt].length;const size=Math.min(c.w*s*0.9,(c.h*s/n)*0.88)*gsZ*c.sc;ctx.font=`${size}px "${fam}", "BiauKai", serif`;const lh=size*1.05,st=cy-((n-1)*lh)/2;[...txt].forEach((ch,i)=>strokeFill(ctx,ch,cx,st+i*lh,style))}});ctx.restore()}
+function strokeFill(ctx,ch,x,y,style){if(style==="fill"){ctx.setLineDash([]);ctx.fillText(ch,x,y)}else if(style==="dash"){ctx.setLineDash([5,3]);ctx.strokeText(ch,x,y);ctx.setLineDash([])}else{ctx.setLineDash([]);ctx.fillText(ch,x,y);ctx.setLineDash([5,3]);ctx.strokeText(ch,x,y);ctx.setLineDash([])}}
+function render(){if(S.cur<0)return;const p=S.pages[S.cur];overlay.width=pageImg.clientWidth;overlay.height=pageImg.clientHeight;const ctx=overlay.getContext("2d");drawTracing(ctx,1)}
+// ---------- 匯出 A4 直式 ----------
+function compositeA4(p,W=1654,H=2339){const cv=document.createElement("canvas");cv.width=W;cv.height=H;const ctx=cv.getContext("2d");ctx.fillStyle="#fff";ctx.fillRect(0,0,W,H);const sc=Math.min(W/p.w,H/p.h);const dw=p.w*sc,dh=p.h*sc,ox=(W-dw)/2,oy=(H-dh)/2;ctx.drawImage(p.img,ox,oy,dw,dh);
+const col=$("inkColor").value,alpha=+$("inkAlpha").value/100,lw=Math.max(1,+$("inkWidth").value*sc*0.6),style=$("inkStyle").value,gsH=+$("gScaleH").value/100,gsZ=+$("gScaleZ").value/100,gdx=+$("gDx").value*sc,gdy=+$("gDy").value*sc;
+ctx.save();p.cells.forEach(c=>{if(!c.selected)return;const txt=c.type==="side"?(c.zhuyin||c.hanzi):(c.type==="only"?(c.zhuyin||c.hanzi):(c.hanzi||""));if(!txt)return;const cx=ox+(c.x+c.w/2)*sc+gdx,cy=oy+(c.y+c.h/2)*sc+gdy;
+const fam=c.type==="hanzi"?S.fontFamHanzi:S.fontFamZhuyin;
+ctx.globalAlpha=alpha;ctx.fillStyle=col;ctx.strokeStyle=col;ctx.lineWidth=lw;ctx.textAlign="center";ctx.textBaseline="middle";
+if(c.type==="hanzi"){const size=Math.min(c.w,c.h)*sc*0.88*gsH*c.sc;ctx.font=`${size}px "${fam}", serif`;strokeFill(ctx,txt,cx,cy,style)}else{const n=[...txt].length;const size=Math.min(c.w*sc*0.9,(c.h*sc/n)*0.88)*gsZ*c.sc;ctx.font=`${size}px "${fam}", serif`;const lh=size*1.05,st=cy-((n-1)*lh)/2;[...txt].forEach((ch,i)=>strokeFill(ctx,ch,cx,st+i*lh,style))}});ctx.restore();return cv}
+$("btnPNG").onclick=()=>{if(S.cur<0)return alert("請先上傳");const cv=compositeA4(S.pages[S.cur]);dl(cv.toDataURL("image/png"),`描寫頁-第${S.cur+1}頁.png`)};
+$("btnPNGAll").onclick=()=>{if(!S.pages.length)return alert("請先上傳");S.pages.forEach((p,i)=>dl(compositeA4(p).toDataURL("image/png"),`描寫頁-第${i+1}頁.png`))};
+$("btnPDF").onclick=async()=>{if(!S.pages.length)return alert("請先上傳");$("exportMsg").textContent="PDF 產生中…請稍候";await document.fonts.ready;const {jsPDF}=window.jspdf;const pdf=new jsPDF({unit:"mm",format:"a4",orientation:"portrait"});S.pages.forEach((p,i)=>{const cv=compositeA4(p);const url=cv.toDataURL("jpeg",0.92);if(i>0)pdf.addPage("a4","portrait");pdf.addImage(url,"JPEG",0,0,210,297)});pdf.save("習寫簿虛線描寫-直式A4.pdf");$("exportMsg").textContent="已匯出直式 A4 PDF（原圖只加虛線，不做其他變更）。"};
+function dl(url,name){const a=document.createElement("a");a.href=url;a.download=name;a.click()}
+updLabels();refreshFonts();tryBuiltin();
+</script>
+</body>
+</html>
