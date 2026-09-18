@@ -1,5 +1,8 @@
 # 習寫簿虛線描寫工具 — 使用說明
 
+🌐 線上直接用：https://andice0107.github.io/hanzi-tracing-tool/
+（原始碼：https://github.com/andice0107/hanzi-tracing-tool）
+
 ## 開啟方式
 直接雙擊 `index.html` 用 Chrome / Edge 開啟即可（單機、免安裝）。
 建議連網開啟一次（需載入 pdf.js / jsPDF CDN 之後 PDF 匯出才可用）。
