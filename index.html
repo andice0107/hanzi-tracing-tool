@@ -235,14 +235,15 @@ function thinLines(a,tol){const f=[];for(const v of a){if(!f.length||v-f[f.lengt
 xs=thinLines(xs,cw*0.008);ys=thinLines(ys,ch*0.008);
 // 線段分類：切段看連續度。實線＝任一段≥0.9；虛線＝跨3段以上且段段0.25~0.9；內容干擾兩邊不沾
 // 線段分類：沿線滑窗量連續度（不依賴正交線，文字梳狀干擾下仍穩）。
-// 實線＝80px窗連續度達0.9；虛線＝80px窗不到0.9但20px窗0.3~0.85連跑120px以上；其餘內容丟掉
-function lineArrX(x){const a=new Uint8Array(ch);for(let y=0;y<ch;y++){let m=0;for(let r=-1;r<=1;r++){const yy=y+r;if(yy>=0&&yy<ch&&mask[yy*cw+x]){m=1;break}}a[y]=m}return a}
-function lineArrY(y){const a=new Uint8Array(cw);for(let x=0;x<cw;x++){let m=0;for(let r=-1;r<=1;r++){const xx=x+r;if(xx>=0&&xx<cw&&mask[y*cw+xx]){m=1;break}}a[x]=m}return a}
-function maxWin(a,W){let b=0;for(let i=0;i+W<=a.length;i+=4){let m=0;for(let k=0;k<W;k++)m+=a[i+k];const d=m/W;if(d>b)b=d;if(b>=0.99)break}return b}
+// 實線＝20px窗0.9以上連跑100px（格線才夠長；再直的字筆劃也只有一格高）。
+// 虛線＝80px窗不到0.9但20px窗0.3~0.85連跑120px以上；其餘內容丟掉
+function lineArrX(x){const a=new Uint8Array(ch);for(let y=0;y<ch;y++)a[y]=mask[y*cw+x];return a}
+function lineArrY(y){const a=new Uint8Array(cw);for(let x=0;x<cw;x++)a[x]=mask[y*cw+x];return a}
+function winRun(a,W,th){let best=0,cur=0;for(let i=0;i+W<=a.length;i+=4){let m=0;for(let k=0;k<W;k++)m+=a[i+k];if(m/W>=th)cur+=4;else{if(cur>best)best=cur;cur=0}}return cur>best?cur:best}
 function dashRun(a){let best=0,cur=0;for(let i=0;i+20<=a.length;i+=4){let m=0;for(let k=0;k<20;k++)m+=a[i+k];const d=m/20;if(d>=0.3&&d<0.85)cur+=4;else{if(cur>best)best=cur;cur=0}}return cur>best?cur:best}
-const dashX=xs.filter(x=>{const a=lineArrX(x);return maxWin(a,80)<0.9&&dashRun(a)>=120});
-const dashY=ys.filter(y=>{const a=lineArrY(y);return maxWin(a,80)<0.9&&dashRun(a)>=120});
-xs=xs.filter(x=>maxWin(lineArrX(x),80)>=0.9);ys=ys.filter(y=>maxWin(lineArrY(y),80)>=0.9);
+const dashX=xs.filter(x=>{const a=lineArrX(x);return winRun(a,80,0.9)<100&&dashRun(a)>=120});
+const dashY=ys.filter(y=>{const a=lineArrY(y);return winRun(a,80,0.9)<100&&dashRun(a)>=120});
+xs=xs.filter(x=>winRun(lineArrX(x),20,0.9)>=100);ys=ys.filter(y=>winRun(lineArrY(y),20,0.9)>=100);
 if(xs.length<2||ys.length<2){alert(`自動掃描只找到 ${xs.length} 條垂直實線 / ${ys.length} 條水平實線，請調高靈敏度或改用手動框選。`);return}
 const cells=[];for(let j=0;j<ys.length-1;j++)for(let i=0;i<xs.length-1;i++){let x0=xs[i]/sc,y0=ys[j]/sc,w=(xs[i+1]-xs[i])/sc,h=(ys[j+1]-ys[j])/sc;if(w<14||h<14)continue;if(w>p.w*0.5||h>p.h*0.4)continue;const ar=w/h;
 let type=ar<0.62?"side":(S.layoutMode==="pure"?"only":"hanzi");cells.push({x:x0,y:y0,w,h,type,selected:false,hanzi:"",zhuyin:"",dx:0,dy:0,sc:1,auto:true})}
