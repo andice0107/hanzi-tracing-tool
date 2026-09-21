@@ -226,30 +226,36 @@ if(!paperBg&&((b>90&&b-r>18&&b-g>6)||Math.max(r,g,b)<110))mask[y*cw+x]=1}
 const colP=new Float32Array(cw),rowP=new Float32Array(ch);
 for(let y=0;y<ch;y++)for(let x=0;x<cw;x++)if(mask[y*cw+x]){colP[x]++;rowP[y]++}
 const thX=ch*(0.10+sens*0.035),thY=cw*(0.10+sens*0.035);
-let xs=peaks(colP,thX),ys=peaks(rowP,thY);
-// 過濾太密的碎線
-xs=xs.filter((x,i)=>i===0||x-xs[i-1]>cw*0.008);ys=ys.filter((y,i)=>i===0||y-ys[i-1]>ch*0.008);
-// ★田字格關鍵：區分「實線格界」與「田字格內十字虛線定位線」
-// 用百分位範圍內的密度判斷（抗外框雜散像素）：實線~1.0，虛線~0.55，門檻 0.85
-// 這樣亮光一格＝四小方格組成的整個田字格，不會被拆成四格
-function densX(x){const a=[];for(let y=0;y<ch;y++)if(mask[y*cw+x])a.push(y);if(a.length<8)return 0;const p5=a[Math.floor(a.length*0.05)],p9=a[Math.ceil(a.length*0.95)-1];return Math.min(1,a.length/Math.max(1,p9-p5+1))}
-function densY(y){const a=[];for(let x=0;x<cw;x++)if(mask[y*cw+x])a.push(x);if(a.length<8)return 0;const p5=a[Math.floor(a.length*0.05)],p9=a[Math.ceil(a.length*0.95)-1];return Math.min(1,a.length/Math.max(1,p9-p5+1))}
-const dashX=xs.filter(x=>densX(x)<0.85),dashY=ys.filter(y=>densY(y)<0.85);
-xs=xs.filter(x=>densX(x)>=0.85);ys=ys.filter(y=>densY(y)>=0.85);
+let xs=peaks(colP,thX*0.5),ys=peaks(rowP,thY*0.5); // 門檻放半取候選，後面以跨欄連續度精分
+// 過濾太密的碎線（與上一個保留的比，避免雜峰連累真線）
+function thinLines(a,tol){const f=[];for(const v of a){if(!f.length||v-f[f.length-1]>tol)f.push(v)}return f}
+xs=thinLines(xs,cw*0.008);ys=thinLines(ys,ch*0.008);
+// 線段分類：切段看連續度。實線＝任一段≥0.9；虛線＝跨3段以上且段段0.25~0.9；內容干擾兩邊不沾
+// 線段分類：沿線滑窗量連續度（不依賴正交線，文字梳狀干擾下仍穩）。
+// 實線＝80px窗連續度達0.9；虛線＝80px窗不到0.9但20px窗0.3~0.85連跑120px以上；其餘內容丟掉
+function lineArrX(x){const a=new Uint8Array(ch);for(let y=0;y<ch;y++){let m=0;for(let r=-1;r<=1;r++){const yy=y+r;if(yy>=0&&yy<ch&&mask[yy*cw+x]){m=1;break}}a[y]=m}return a}
+function lineArrY(y){const a=new Uint8Array(cw);for(let x=0;x<cw;x++){let m=0;for(let r=-1;r<=1;r++){const xx=x+r;if(xx>=0&&xx<cw&&mask[y*cw+xx]){m=1;break}}a[x]=m}return a}
+function maxWin(a,W){let b=0;for(let i=0;i+W<=a.length;i+=4){let m=0;for(let k=0;k<W;k++)m+=a[i+k];const d=m/W;if(d>b)b=d;if(b>=0.99)break}return b}
+function dashRun(a){let best=0,cur=0;for(let i=0;i+20<=a.length;i+=4){let m=0;for(let k=0;k<20;k++)m+=a[i+k];const d=m/20;if(d>=0.3&&d<0.85)cur+=4;else{if(cur>best)best=cur;cur=0}}return cur>best?cur:best}
+const dashX=xs.filter(x=>{const a=lineArrX(x);return maxWin(a,80)<0.9&&dashRun(a)>=120});
+const dashY=ys.filter(y=>{const a=lineArrY(y);return maxWin(a,80)<0.9&&dashRun(a)>=120});
+xs=xs.filter(x=>maxWin(lineArrX(x),80)>=0.9);ys=ys.filter(y=>maxWin(lineArrY(y),80)>=0.9);
 if(xs.length<2||ys.length<2){alert(`自動掃描只找到 ${xs.length} 條垂直實線 / ${ys.length} 條水平實線，請調高靈敏度或改用手動框選。`);return}
 const cells=[];for(let j=0;j<ys.length-1;j++)for(let i=0;i<xs.length-1;i++){let x0=xs[i]/sc,y0=ys[j]/sc,w=(xs[i+1]-xs[i])/sc,h=(ys[j+1]-ys[j])/sc;if(w<14||h<14)continue;if(w>p.w*0.5||h>p.h*0.4)continue;const ar=w/h;
 let type=ar<0.62?"side":(S.layoutMode==="pure"?"only":"hanzi");cells.push({x:x0,y:y0,w,h,type,selected:false,hanzi:"",zhuyin:"",dx:0,dy:0,sc:1,auto:true})}
 // 併格處理：分隔線遺失造成多列/多欄併成一格時，按中位數倍數自動切回；
 // 又高又寬的（如訂正大格、筆順大圖）才整個丟掉
 if(cells.length){
-const hs=cells.map(c=>c.h).sort((a,b)=>a-b),mws=cells.map(c=>c.w).sort((a,b)=>a-b);
-const medH=hs[Math.floor(hs.length/2)]||0,medW=mws[Math.floor(mws.length/2)]||0;
+function med(a){const s=a.slice().sort((x,y)=>x-y);return s.length?s[Math.floor(s.length/2)]:0}
+let medH=med(cells.map(c=>c.h).filter(h=>h>=30));if(!medH)medH=med(cells.map(c=>c.h));
+let medW=med(cells.map(c=>c.w).filter(w=>w>=30));if(!medW)medW=med(cells.map(c=>c.w));
 const out=[];
 for(const c of cells){
 if(medH&&medW&&c.h>medH*1.8&&(c.w>medW*1.8||(c.w<medW*1.2&&c.h>medH*2.5)))continue; // 大圖大格、細長標籤條丟掉
 let nh=medH?Math.round(c.h/medH):1,nw=medW?Math.round(c.w/medW):1;
 if(!(c.h>medH*1.5&&nh>=2&&nh<=5))nh=1;
 if(!(c.w>medW*1.5&&nw>=2&&nw<=5))nw=1;
+if((nh>1||nw>1)&&overallRes(c)>0.10)continue; // 併格但整格墨多＝示範大圖，直接丟掉不拆
 for(let r=0;r<nh;r++)for(let k=0;k<nw;k++){
 const nc=Object.assign({},c,{x:c.x+k*c.w/nw,y:c.y+r*c.h/nh,w:c.w/nw,h:c.h/nh,selected:false,blank:false});
 const ar2=nc.w/nc.h;nc.type=ar2<0.62?"side":(S.layoutMode==="pure"?"only":"hanzi");
@@ -257,11 +263,20 @@ out.push(nc)}}
 cells.length=0;cells.push(...out)
 // 純正方版式：拆完再砍窄條（先砍會誤殺待拆的併格）
 if(S.layoutMode==="pure"||S.layoutMode==="purehanzi")for(let i=cells.length-1;i>=0;i--)if(cells[i].w/cells[i].h<0.62)cells.splice(i,1)}
-// 空白判斷：排除十字虛線帶後看殘留墨水 + 虛線帶占空比（揪出壓在虛線上的「一」）
-// 淺底標籤格、有字範例格 → 不預選；純空白田字格/窄注音格 → 自動選取
+// 統一墨水：藍字(不論深淺，淺藍範例字也算)/深色/鮮色/灰字都算；紙底與暖色陰影排除
+function inkPx(r,g,b){const mn=Math.min(r,g,b),mx=Math.max(r,g,b);
+if(mx<110)return true;
+if(b>90&&b-r>18&&b-g>6)return true;
+if(mx-mn>=40)return true;
+if(250-mx>25&&(mx-mn)<45)return true;
+return false}
+function overallRes(c){const ax=c.x*sc,ay=c.y*sc,aw=c.w*sc,ah=c.h*sc;
+const ix0=Math.ceil(ax+aw*0.15),ix1=Math.floor(ax+aw*0.85),iy0=Math.ceil(ay+ah*0.15),iy1=Math.floor(ay+ah*0.85);
+let m=0,n=0;for(let y=iy0;y<=iy1;y++)for(let x=ix0;x<=ix1;x++){n++;const[R,G,B]=pxAt(x,y);if(inkPx(R,G,B))m++}return n?m/n:0}
 function cellStats(c){
 const ax=c.x*sc,ay=c.y*sc,aw=c.w*sc,ah=c.h*sc;
-const ix0=Math.ceil(ax+aw*0.15),ix1=Math.floor(ax+aw*0.85),iy0=Math.ceil(ay+ah*0.15),iy1=Math.floor(ay+ah*0.85);
+// 取樣只取 30%~85% 高度：頂部 30% 是標籤小黑標區，直接不看
+const ix0=Math.ceil(ax+aw*0.15),ix1=Math.floor(ax+aw*0.85),iy0=Math.ceil(ay+ah*0.30),iy1=Math.floor(ay+ah*0.85);
 let tint=0,tintN=0;
 for(let y=iy0;y<=iy1;y++)for(let x=ix0;x<=ix1;x++){const[r,g,b]=pxAt(x,y);tintN++;if(Math.min(r,g,b)>140&&(Math.max(r,g,b)-Math.min(r,g,b))>=25)tint++}
 tint=tintN?tint/tintN:0;
@@ -278,26 +293,43 @@ for(const v of fb){if(run.length&&v-run[run.length-1]>1){if(run.length<4)out.pus
 if(run.length<4)out.push(...run);return out}
 if(!bX0.length)bX.push(...fbScan(true,ix0,ix1,colF));
 if(!bY0.length)bY.push(...fbScan(false,iy0,iy1,rowF));
-let ink=0,tot=0,darkTop=0;
-const topLim=iy0+(iy1-iy0+1)*0.3; // 格內上方小黑標（如29漢）是標籤，不算字
+let ink=0,tot=0,blue=0,blueN=0;
+for(let y=iy0;y<=iy1;y++)for(let x=ix0;x<=ix1;x++){const[R,G,B]=pxAt(x,y);blueN++;if(B>90&&B-R>18&&B-G>6)blue++}
+blue=blueN?blue/blueN:0;
 for(let y=iy0;y<=iy1;y++){const yB=bY.some(dy=>Math.abs(y-dy)<=1);
 for(let x=ix0;x<=ix1;x++){if(yB)continue;if(bX.some(dx=>Math.abs(x-dx)<=1))continue;tot++;
-if(mask[y*cw+x]){ink++;const[R,G,B]=pxAt(x,y);if(y<topLim&&Math.max(R,G,B)<110)darkTop++;}}}
+const[R,G,B]=pxAt(x,y);
+if(inkPx(R,G,B))ink++}}
 let res=tot?ink/tot:0;
-if(tot&&darkTop/tot<0.08)res=(ink-darkTop)/tot; // 頂部少量深色視為標籤扣除
 let duty=0;
-for(const dy of bY)for(let r=-1;r<=1;r++){const y=dy+r;if(y<iy0||y>iy1)continue;let m=0,n=0;for(let x=ix0;x<=ix1;x++){n++;if(mask[y*cw+x])m++}if(n)duty=Math.max(duty,m/n)}
-for(const dx of bX)for(let r=-1;r<=1;r++){const x=dx+r;if(x<ix0||x>ix1)continue;let m=0,n=0;for(let y=iy0;y<=iy1;y++){n++;if(mask[y*cw+x])m++}if(n)duty=Math.max(duty,m/n)}
-return{tint,res,duty}}
-for(const c of cells){const s=cellStats(c);c.tint=s.tint;c.blank=s.tint<=0.35&&s.res<0.04&&s.duty<0.85;c.selected=!!c.blank}
-// 合併既有（避免重複）：若中心點已在既有格內則跳過
-const kept=[];for(const c of cells){const cx=c.x+c.w/2,cy=c.y+c.h/2;if(p.cells.some(k=>cx>k.x&&cx<k.x+k.w&&cy>k.y&&cy<k.y+k.h))continue;kept.push(c)}
+for(const dy of bY)for(let r=-1;r<=1;r++){const y=dy+r;if(y<iy0||y>iy1)continue;let m=0,n=0;for(let x=ix0;x<=ix1;x++){n++;const[R,G,B]=pxAt(x,y);if(inkPx(R,G,B))m++}if(n)duty=Math.max(duty,m/n)}
+for(const dx of bX)for(let r=-1;r<=1;r++){const x=dx+r;if(x<ix0||x>ix1)continue;let m=0,n=0;for(let y=iy0;y<=iy1;y++){n++;const[R,G,B]=pxAt(x,y);if(inkPx(R,G,B))m++}if(n)duty=Math.max(duty,m/n)}
+return{tint,res,duty,blue,overall:overallRes(c)}}
+for(const c of cells){const s=cellStats(c);c.tint=s.tint;c.res=s.res;c.blue=s.blue;c.overall=s.overall;c.blank=s.tint<=0.35&&s.res<0.05&&s.duty<0.85;c.selected=!!c.blank}
+// 整頁有藍色印刷/虛線時，無藍格子不是書寫格（示範黑字、說明文字、圖畫、標籤條一律丟掉）
+if(cells.some(c=>c.blue>=0.05))for(let i=cells.length-1;i>=0;i--)if(cells[i].blue<0.02)cells.splice(i,1);
+// 自動模式去窄條：整頁窄條都沒藍 → 不是注音格，整批不要（剩下的藍窄格是合法右注音）
+if(S.layoutMode==="auto"){const nar=cells.filter(c=>c.w/c.h<0.62);
+if(nar.length&&Math.max(...nar.map(c=>c.blue),0)<0.03)for(let i=nar.length-1;i>=0;i--)if(nar[i].res<0.10)cells.splice(cells.indexOf(nar[i]),1)}
+// 合併既有（避免重複）：兩格重疊一半以上視為同一格（重掃線條差 1~2px 也不會疊格）
+const kept=[];for(const c of cells){let dup=false;
+for(const k of p.cells){const ix0=Math.max(c.x,k.x),iy0=Math.max(c.y,k.y),ix1=Math.min(c.x+c.w,k.x+k.w),iy1=Math.min(c.y+c.h,k.y+k.h);
+const iw=Math.max(0,ix1-ix0),ih=Math.max(0,iy1-iy0),inter=iw*ih,union=c.w*c.h+k.w*k.h-inter;
+if(union>0&&(inter/union>0.45||inter/Math.min(c.w*c.h,k.w*k.h)>0.8)){dup=true;break}}
+if(!dup)kept.push(c)}
 p.cells.push(...kept);
 // 直式排序：由右而左、由上而下
 sortCellsVertical(p);
 const nBlank=kept.filter(c=>c.blank).length;
 buildCells();render();renderSelTable();renderList();alert(`自動掃描完成：新增 ${kept.length} 個田字格，其中 ${nBlank} 個空白格已自動選取（黃色亮光，會印虛線）；${kept.length-nBlank} 個有字/標籤格僅框出不選（灰色）。訂正大格、標籤條已排除。`)}
-function peaks(arr,th){const out=[];let i=0;while(i<arr.length){if(arr[i]>th){let s=i,e=i,sum=0,w=0;while(e<arr.length&&arr[e]>th*0.5){sum+=arr[e]*e;w+=arr[e];e++}out.push(Math.round(sum/w));i=e}else i++}return out}
+function peaks(arr,th){const out=[],W=12,promT=th*0.5;
+for(let j=0;j<arr.length;j++){if(arr[j]<=th)continue;
+const l=j>0?arr[j-1]:-Infinity,r=j<arr.length-1?arr[j+1]:-Infinity;
+if(!(arr[j]>=l&&arr[j]>r))continue;
+let mL=Infinity;for(let k=Math.max(0,j-W);k<j;k++)mL=Math.min(mL,arr[k]);
+let mR=Infinity;for(let k=j+1;k<Math.min(arr.length,j+W+1);k++)mR=Math.min(mR,arr[k]);
+if(arr[j]-Math.max(mL,mR)>promT)out.push(j)}
+return out}
 function mergeLines(a){return a} // 保留相容（未使用）
 // ---------- 手動框選 ----------
 let drag=null;
