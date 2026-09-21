@@ -79,10 +79,11 @@ kbd{background:#eee;border:1px solid #ccc;border-radius:4px;padding:0 4px;font-s
 <div class="row">
 <button class="small" id="btnAuto">🔍 自動掃描田字格</button>
 <button class="small" id="btnManual">✏️ 手動框選補格</button>
+<button class="small" id="btnAddOne">＋手拖加一格</button>
 <button class="small" id="btnClearCells">🗑 清除本頁格子</button>
 </div>
 </div>
-<div class="row" style="font-size:12px">靈敏度 <input type="range" id="sens" min="1" max="10" value="5"> <span id="sensV">5</span> ｜ 以「田字格」為單位（四小方格＋十字虛線＝一格，虛線只定位、不拆格）。掃不全請用手動框選。</div>
+<div class="row" style="font-size:12px">靈敏度 <input type="range" id="sens" min="1" max="10" value="5"> <span id="sensV">5</span> ｜版式 <select id="layoutMode" style="width:auto"><option value="auto">自動判斷</option><option value="pure">純注音（正方格）</option><option value="hanzi">漢字＋右注音</option><option value="purehanzi">純漢字（正方格）</option></select> ｜以「田字格」為單位。切換版式後請「清除本頁格子」再重掃。</div>
 <div id="viewerWrap">
 <img id="pageImg" alt="">
 <canvas id="overlay"></canvas>
@@ -104,6 +105,9 @@ kbd{background:#eee;border:1px solid #ccc;border-radius:4px;padding:0 4px;font-s
 <div class="row"><label>快速依序填入漢字串（直式順序：由右而左、由上而下）：</label><input type="text" id="quickHanzi" placeholder="例：讓我走細雨"></div>
 <div class="row"><button class="small" id="btnQuickFill">依序填入</button><button class="small" id="btnClearText">清空所選文字</button></div>
 <div style="max-height:220px;overflow:auto"><table class="cellsel"><thead><tr><th>#</th><th>類型</th><th>漢字/注音內容</th><th>注音(右側/純注音)</th></tr></thead><tbody id="selTable"></tbody></table></div>
+<div class="hint" id="activeBox" style="display:none">目前調整：第 <b id="activeNo"></b> 格（<span id="activeType"></span>）
+<div class="row">X<input type="number" id="aX" style="width:62px"> Y<input type="number" id="aY" style="width:62px"> 寬<input type="number" id="aW" style="width:62px"> 高<input type="number" id="aH" style="width:62px"></div>
+<div class="row"><button class="small" id="btnDelCell">刪除此格</button><span style="font-size:11px;color:#888">改數字即時套用</span></div></div>
 <h3>4. 虛線微調</h3>
 <div class="row"><label>漢字大小</label><input type="range" id="gScaleH" min="50" max="130" value="92"><span id="gScaleHV">92%</span></div>
 <div class="row"><label>注音大小</label><input type="range" id="gScaleZ" min="50" max="160" value="100"><span id="gScaleZV">100%</span></div>
@@ -126,7 +130,7 @@ kbd{background:#eee;border:1px solid #ccc;border-radius:4px;padding:0 4px;font-s
 <div id="dropHint">📥 放開以加入檔案<span>PDF / 圖片 → 新增作業內頁分頁　・　字體檔（.ttf / .otf / .woff2 / .ttc）→ 加入字體庫</span></div>
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-const S={pages:[],cur:-1,fonts:[{id:"builtin-hanzi",name:"內建漢字虛線字體",family:"BuiltinHanzi",locked:true,loaded:false},{id:"builtin-zhuyin",name:"內建注音虛線字體",family:"BuiltinZhuyin",locked:true,loaded:false}],fontFamHanzi:"BuiltinHanzi",fontFamZhuyin:"BuiltinZhuyin",manualMode:false};
+const S={pages:[],cur:-1,fonts:[{id:"builtin-hanzi",name:"內建漢字虛線字體",family:"BuiltinHanzi",locked:true,loaded:false},{id:"builtin-zhuyin",name:"內建注音虛線字體",family:"BuiltinZhuyin",locked:true,loaded:false}],fontFamHanzi:"BuiltinHanzi",fontFamZhuyin:"BuiltinZhuyin",manualMode:false,layoutMode:"auto",active:null};
 const $=id=>document.getElementById(id);
 const fileInput=$("fileInput"),fontInput=$("fontInput");
 // ---------- 字體（漢字格 / 注音格可各選一種） ----------
@@ -189,7 +193,7 @@ function loadImg(src){return new Promise((res,rej)=>{const i=new Image();i.onloa
 async function addImageFile(f){const url=URL.createObjectURL(f);const img=await loadImg(url);S.pages.push({name:f.name,img,cells:[],w:img.naturalWidth,h:img.naturalHeight})}
 async function addPDF(f){const buf=await f.arrayBuffer();const pdf=await pdfjsLib.getDocument({data:buf}).promise;for(let p=1;p<=pdf.numPages;p++){const page=await pdf.getPage(p);const vp=page.getViewport({scale:2});const cv=document.createElement("canvas");cv.width=vp.width;cv.height=vp.height;await page.render({canvasContext:cv.getContext("2d"),viewport:vp}).promise;const img=await loadImg(cv.toDataURL("png"));S.pages.push({name:`${f.name}#p${p}`,img,cells:[],w:img.naturalWidth,h:img.naturalHeight})}}
 function renderList(){const L=$("pageList");L.innerHTML="";S.pages.forEach((p,i)=>{const d=document.createElement("div");d.className="page-tab"+(i===S.cur?" active":"");d.innerHTML=`<img src="${p.img.src}"><div><b>${i+1}. ${p.name}</b><br>${p.cells.length} 田字格 / ${p.cells.filter(c=>c.selected).length} 已選</div>`;d.onclick=()=>switchPage(i);L.appendChild(d)})}
-function switchPage(i){S.cur=i;const p=S.pages[i];if(!p)return;$("pageTitle").textContent=`第 ${i+1} 頁 / 共 ${S.pages.length} 頁 — ${p.name}`;$("pageImg").src=p.img.src;renderList();$("pageImg").onload=()=>{buildCells();render()}}
+function switchPage(i){S.cur=i;S.active=null;const p=S.pages[i];if(!p)return;$("pageTitle").textContent=`第 ${i+1} 頁 / 共 ${S.pages.length} 頁 — ${p.name}`;$("pageImg").src=p.img.src;renderList();$("pageImg").onload=()=>{buildCells();render()}}
 // ---------- 顯示/疊加 ----------
 // 直式排序：國語作業由右而左、由上而下。欄由右排到左，欄內由上而下
 function sortCellsVertical(p){if(!p.cells.length)return;
@@ -202,10 +206,12 @@ p.cells.sort((a,b)=>(a._col-b._col)||(a.y-b.y)||(a.x-b.x));
 p.cells.forEach(c=>delete c._col)}
 const pageImg=$("pageImg"),overlay=$("overlay"),cellLayer=$("cellLayer");
 function viewScale(){return pageImg.clientWidth/pageImg.naturalWidth||1}
-function buildCells(){cellLayer.innerHTML="";const p=S.pages[S.cur];if(!p)return;const s=viewScale();overlay.width=pageImg.clientWidth;overlay.height=pageImg.clientHeight;p.cells.forEach((c,idx)=>{const d=document.createElement("div");const cls=c.selected?"selected":(c.auto===true?(c.blank?"auto":"filled"):"auto");d.className="cell "+cls;d.style.left=(c.x*s)+"px";d.style.top=(c.y*s)+"px";d.style.width=(c.w*s)+"px";d.style.height=(c.h*s)+"px";const t=c.type==="hanzi"?"漢":c.type==="side"?"注":"音";d.innerHTML=`<span class="tag">${idx+1}${t}</span><span class="ch">${(c.hanzi||"")+ (c.zhuyin?" "+c.zhuyin:"")}</span>`;d.title=`${idx+1} ${c.type} 點擊選取/取消`;d.onclick=ev=>{ev.stopPropagation();c.selected=!c.selected;buildCells();render();renderSelTable()};cellLayer.appendChild(d)});$("cellCount").textContent=`已框 ${p.cells.length} 個田字格，已選 ${p.cells.filter(c=>c.selected).length} 格`}
+function buildCells(){cellLayer.innerHTML="";const p=S.pages[S.cur];if(!p)return;const s=viewScale();overlay.width=pageImg.clientWidth;overlay.height=pageImg.clientHeight;p.cells.forEach((c,idx)=>{const d=document.createElement("div");const cls=c.selected?"selected":(c.auto===true?(c.blank?"auto":"filled"):"auto");d.className="cell "+cls;d.style.left=(c.x*s)+"px";d.style.top=(c.y*s)+"px";d.style.width=(c.w*s)+"px";d.style.height=(c.h*s)+"px";const t=c.type==="hanzi"?"漢":c.type==="side"?"注":"音";d.innerHTML=`<span class="tag">${idx+1}${t}</span><span class="ch">${(c.hanzi||"")+ (c.zhuyin?" "+c.zhuyin:"")}</span>`;d.title=`${idx+1} ${c.type} 點擊選取/取消`;d.onclick=ev=>{ev.stopPropagation();c.selected=!c.selected;S.active=c;renderActiveBox();buildCells();render();renderSelTable()};cellLayer.appendChild(d)});$("cellCount").textContent=`已框 ${p.cells.length} 個田字格，已選 ${p.cells.filter(c=>c.selected).length} 格`;renderActiveBox()}
 window.addEventListener("resize",()=>{buildCells();render()});
 // ---------- 自動偵測 ----------
 $("sens").oninput=e=>$("sensV").textContent=e.target.value;
+$("layoutMode").onchange=e=>{S.layoutMode=e.target.value;};
+$("btnAddOne").onclick=()=>{$("mRows").value=1;$("mCols").value=1;if(!S.manualMode)$("btnManual").click();};
 $("btnAuto").onclick=()=>autoDetect();
 function autoDetect(){const p=S.pages[S.cur];if(!p)return alert("請先上傳");
 const sens=+($("sens").value); // 1..10
@@ -231,9 +237,26 @@ function densY(y){const a=[];for(let x=0;x<cw;x++)if(mask[y*cw+x])a.push(x);if(a
 const dashX=xs.filter(x=>densX(x)<0.85),dashY=ys.filter(y=>densY(y)<0.85);
 xs=xs.filter(x=>densX(x)>=0.85);ys=ys.filter(y=>densY(y)>=0.85);
 if(xs.length<2||ys.length<2){alert(`自動掃描只找到 ${xs.length} 條垂直實線 / ${ys.length} 條水平實線，請調高靈敏度或改用手動框選。`);return}
-const cells=[];for(let j=0;j<ys.length-1;j++)for(let i=0;i<xs.length-1;i++){let x0=xs[i]/sc,y0=ys[j]/sc,w=(xs[i+1]-xs[i])/sc,h=(ys[j+1]-ys[j])/sc;if(w<14||h<14)continue;if(w>p.w*0.5||h>p.h*0.4)continue;const ar=w/h;let type=ar<0.62?"side":"hanzi";cells.push({x:x0,y:y0,w,h,type,selected:false,hanzi:"",zhuyin:"",dx:0,dy:0,sc:1,auto:true})}
-// 踢掉訂正大格等非書寫高格（高 > 中位列高 1.8 倍）
-if(cells.length){const hs=cells.map(c=>c.h).sort((a,b)=>a-b);const medH=hs[Math.floor(hs.length/2)]||0;for(let i=cells.length-1;i>=0;i--)if(cells[i].h>medH*1.8)cells.splice(i,1)}
+const cells=[];for(let j=0;j<ys.length-1;j++)for(let i=0;i<xs.length-1;i++){let x0=xs[i]/sc,y0=ys[j]/sc,w=(xs[i+1]-xs[i])/sc,h=(ys[j+1]-ys[j])/sc;if(w<14||h<14)continue;if(w>p.w*0.5||h>p.h*0.4)continue;const ar=w/h;
+let type=ar<0.62?"side":(S.layoutMode==="pure"?"only":"hanzi");cells.push({x:x0,y:y0,w,h,type,selected:false,hanzi:"",zhuyin:"",dx:0,dy:0,sc:1,auto:true})}
+// 併格處理：分隔線遺失造成多列/多欄併成一格時，按中位數倍數自動切回；
+// 又高又寬的（如訂正大格、筆順大圖）才整個丟掉
+if(cells.length){
+const hs=cells.map(c=>c.h).sort((a,b)=>a-b),mws=cells.map(c=>c.w).sort((a,b)=>a-b);
+const medH=hs[Math.floor(hs.length/2)]||0,medW=mws[Math.floor(mws.length/2)]||0;
+const out=[];
+for(const c of cells){
+if(medH&&medW&&c.h>medH*1.8&&(c.w>medW*1.8||(c.w<medW*1.2&&c.h>medH*2.5)))continue; // 大圖大格、細長標籤條丟掉
+let nh=medH?Math.round(c.h/medH):1,nw=medW?Math.round(c.w/medW):1;
+if(!(c.h>medH*1.5&&nh>=2&&nh<=5))nh=1;
+if(!(c.w>medW*1.5&&nw>=2&&nw<=5))nw=1;
+for(let r=0;r<nh;r++)for(let k=0;k<nw;k++){
+const nc=Object.assign({},c,{x:c.x+k*c.w/nw,y:c.y+r*c.h/nh,w:c.w/nw,h:c.h/nh,selected:false,blank:false});
+const ar2=nc.w/nc.h;nc.type=ar2<0.62?"side":(S.layoutMode==="pure"?"only":"hanzi");
+out.push(nc)}}
+cells.length=0;cells.push(...out)
+// 純正方版式：拆完再砍窄條（先砍會誤殺待拆的併格）
+if(S.layoutMode==="pure"||S.layoutMode==="purehanzi")for(let i=cells.length-1;i>=0;i--)if(cells[i].w/cells[i].h<0.62)cells.splice(i,1)}
 // 空白判斷：排除十字虛線帶後看殘留墨水 + 虛線帶占空比（揪出壓在虛線上的「一」）
 // 淺底標籤格、有字範例格 → 不預選；純空白田字格/窄注音格 → 自動選取
 function cellStats(c){
@@ -242,14 +265,30 @@ const ix0=Math.ceil(ax+aw*0.15),ix1=Math.floor(ax+aw*0.85),iy0=Math.ceil(ay+ah*0
 let tint=0,tintN=0;
 for(let y=iy0;y<=iy1;y++)for(let x=ix0;x<=ix1;x++){const[r,g,b]=pxAt(x,y);tintN++;if(Math.min(r,g,b)>140&&(Math.max(r,g,b)-Math.min(r,g,b))>=25)tint++}
 tint=tintN?tint/tintN:0;
-const bX=dashX.filter(dx=>dx>=ix0-2&&dx<=ix1+2),bY=dashY.filter(dy=>dy>=iy0-2&&dy<=iy1+2);
-let ink=0,tot=0;
+const bX0=dashX.filter(dx=>dx>=ix0-2&&dx<=ix1+2),bY0=dashY.filter(dy=>dy>=iy0-2&&dy<=iy1+2);
+// 格內 fallback：全域沒抓到的弱虛線，在格內以占空比認（0.35~0.82 視為虛線帶；一橫筆 0.9+ 不算）
+const rowF=y=>{let m=0;for(let x=ix0;x<=ix1;x++)if(mask[y*cw+x])m++;return m/(ix1-ix0+1)};
+const colF=x=>{let m=0;for(let y=iy0;y<=iy1;y++)if(mask[y*cw+x])m++;return m/(iy1-iy0+1)};
+const bX=bX0.slice(),bY=bY0.slice();
+// 格內沒有全域虛線帶的方向才 fallback（已有帶就信全域＋占空比，避免誤扣有字的筆劃）
+function fbScan(isX,lo,hi,fracF){const fb=[];for(let v=lo;v<=hi;v++){const f=fracF(v);if(f>=0.35&&f<=0.82)fb.push(v)}
+// 連續≥4px 的是字的筆劃不是虛線，還原（虛線只 1~2px）
+fb.sort((a,b)=>a-b);const out=[];let run=[];
+for(const v of fb){if(run.length&&v-run[run.length-1]>1){if(run.length<4)out.push(...run);run=[]}run.push(v)}
+if(run.length<4)out.push(...run);return out}
+if(!bX0.length)bX.push(...fbScan(true,ix0,ix1,colF));
+if(!bY0.length)bY.push(...fbScan(false,iy0,iy1,rowF));
+let ink=0,tot=0,darkTop=0;
+const topLim=iy0+(iy1-iy0+1)*0.3; // 格內上方小黑標（如29漢）是標籤，不算字
 for(let y=iy0;y<=iy1;y++){const yB=bY.some(dy=>Math.abs(y-dy)<=1);
-for(let x=ix0;x<=ix1;x++){if(yB)continue;if(bX.some(dx=>Math.abs(x-dx)<=1))continue;tot++;if(mask[y*cw+x])ink++}}
+for(let x=ix0;x<=ix1;x++){if(yB)continue;if(bX.some(dx=>Math.abs(x-dx)<=1))continue;tot++;
+if(mask[y*cw+x]){ink++;const[R,G,B]=pxAt(x,y);if(y<topLim&&Math.max(R,G,B)<110)darkTop++;}}}
+let res=tot?ink/tot:0;
+if(tot&&darkTop/tot<0.08)res=(ink-darkTop)/tot; // 頂部少量深色視為標籤扣除
 let duty=0;
 for(const dy of bY)for(let r=-1;r<=1;r++){const y=dy+r;if(y<iy0||y>iy1)continue;let m=0,n=0;for(let x=ix0;x<=ix1;x++){n++;if(mask[y*cw+x])m++}if(n)duty=Math.max(duty,m/n)}
 for(const dx of bX)for(let r=-1;r<=1;r++){const x=dx+r;if(x<ix0||x>ix1)continue;let m=0,n=0;for(let y=iy0;y<=iy1;y++){n++;if(mask[y*cw+x])m++}if(n)duty=Math.max(duty,m/n)}
-return{tint,res:tot?ink/tot:0,duty}}
+return{tint,res,duty}}
 for(const c of cells){const s=cellStats(c);c.tint=s.tint;c.blank=s.tint<=0.35&&s.res<0.04&&s.duty<0.85;c.selected=!!c.blank}
 // 合併既有（避免重複）：若中心點已在既有格內則跳過
 const kept=[];for(const c of cells){const cx=c.x+c.w/2,cy=c.y+c.h/2;if(p.cells.some(k=>cx>k.x&&cx<k.x+k.w&&cy>k.y&&cy<k.y+k.h))continue;kept.push(c)}
@@ -269,11 +308,14 @@ window.addEventListener("pointermove",e=>{if(!drag)return;const r=$("viewerWrap"
 window.addEventListener("pointerup",e=>{if(!drag)return;const r=$("viewerWrap").getBoundingClientRect();const x=e.clientX-r.left,y=e.clientY-r.top;const rx=Math.min(drag.x0,x),ry=Math.min(drag.y0,y),rw=Math.abs(x-drag.x0),rh=Math.abs(y-drag.y0);$("dragRect").style.display="none";drag=null;if(rw<20||rh<20)return;manualSplit(rx,ry,rw,rh)});
 function manualSplit(rx,ry,rw,rh){const p=S.pages[S.cur];if(!p)return;const s=viewScale();const rows=Math.max(1,+($("mRows").value||1)),cols=Math.max(1,+($("mCols").value||1));const pat=$("mPattern").value;
 const X=rx/s,Y=ry/s,W=rw/s,H=rh/s;const rh_=H/rows;
-if(pat==="hanzi"||pat==="zhuyin"){const cw_=W/cols;for(let r=0;r<rows;r++)for(let c=0;c<cols;c++)p.cells.push({x:X+c*cw_,y:Y+r*rh_,w:cw_,h:rh_,type:pat==="hanzi"?"hanzi":"only",selected:true,hanzi:"",zhuyin:"",dx:0,dy:0,sc:1})}
+if(pat==="hanzi"||pat==="zhuyin"){const cw_=W/cols;const single=rows===1&&cols===1;
+for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){let tp=pat==="hanzi"?"hanzi":"only";
+if(single){const ar1=cw_/rh_;tp=ar1<0.62?(S.layoutMode==="pure"?"only":"side"):(S.layoutMode==="pure"?"only":"hanzi")}
+p.cells.push({x:X+c*cw_,y:Y+r*rh_,w:cw_,h:rh_,type:tp,selected:true,hanzi:"",zhuyin:"",dx:0,dy:0,sc:1,auto:false})}}
 else{ // 漢字+右側注音交替：每組=大格+窄格(窄約0.32倍)
 for(let r=0;r<rows;r++){let cx=X;const pairs=Math.floor(cols/2);const rem=cols%2;const unit=W/(pairs*1.32+(rem?1:0));for(let k=0;k<pairs;k++){p.cells.push({x:cx,y:Y+r*rh_,w:unit,h:rh_,type:"hanzi",selected:true,hanzi:"",zhuyin:"",dx:0,dy:0,sc:1});cx+=unit;p.cells.push({x:cx,y:Y+r*rh_,w:unit*0.32,h:rh_,type:"side",selected:true,hanzi:"",zhuyin:"",dx:0,dy:0,sc:1});cx+=unit*0.32}if(rem)p.cells.push({x:cx,y:Y+r*rh_,w:unit,h:rh_,type:"hanzi",selected:true,hanzi:"",zhuyin:"",dx:0,dy:0,sc:1})}}
 S.manualMode=false;$("btnManual").textContent="✏️ 手動框選補格";$("btnManual").classList.remove("primary");sortCellsVertical(p);buildCells();render();renderSelTable();renderList()}
-$("btnClearCells").onclick=()=>{const p=S.pages[S.cur];if(!p)return;if(!confirm("清除本頁全部格子？"))return;p.cells=[];buildCells();render();renderSelTable();renderList()};
+$("btnClearCells").onclick=()=>{const p=S.pages[S.cur];if(!p)return;if(!confirm("清除本頁全部格子？"))return;p.cells=[];S.active=null;buildCells();render();renderSelTable();renderList()};
 // ---------- 選取 ----------
 $("btnSelAll").onclick=()=>{S.pages[S.cur]?.cells.forEach(c=>c.selected=true);buildCells();render();renderSelTable();renderList()};
 $("btnSelNone").onclick=()=>{S.pages[S.cur]?.cells.forEach(c=>c.selected=false);buildCells();render();renderSelTable();renderList()};
@@ -284,6 +326,17 @@ $("btnCopyUp").onclick=()=>{const p=S.pages[S.cur];if(!p)return;let n=0;const cs
 // ---------- 內容 ----------
 $("btnQuickFill").onclick=()=>{const p=S.pages[S.cur];if(!p)return;const s=$("quickHanzi").value.replace(/\s+/g,"");if(!s)return alert("請先輸入漢字串");const sel=p.cells.filter(c=>c.selected&&c.type==="hanzi");if(!sel.length)return alert("請先選取漢字格");sel.forEach((c,i)=>{if(i<s.length)c.hanzi=s[i]});buildCells();render();renderSelTable()};
 $("btnClearText").onclick=()=>{S.pages[S.cur]?.cells.forEach(c=>{if(c.selected){c.hanzi="";c.zhuyin=""}});buildCells();render();renderSelTable()};
+function renderActiveBox(){const p=S.pages[S.cur],box=$("activeBox");const c=S.active;
+if(!c||!p||p.cells.indexOf(c)<0){box.style.display="none";if(S.active)S.active=null;return}
+box.style.display="block";const idx=p.cells.indexOf(c);
+$("activeNo").textContent=idx+1;$("activeType").textContent=c.type==="hanzi"?"漢字":c.type==="side"?"右注音":"純注音";
+$("aX").value=Math.round(c.x);$("aY").value=Math.round(c.y);$("aW").value=Math.round(c.w);$("aH").value=Math.round(c.h)}
+["aX","aY","aW","aH"].forEach(id=>$(id).oninput=()=>{const c=S.active;if(!c)return;
+const num=k=>{const n=parseFloat($(k).value);return isNaN(n)?null:n};
+const x=num("aX"),y=num("aY"),w=num("aW"),h=num("aH");
+if(x!==null)c.x=x;if(y!==null)c.y=y;if(w!==null&&w>5)c.w=w;if(h!==null&&h>5)c.h=h;
+buildCells();render()});
+$("btnDelCell").onclick=()=>{const p=S.pages[S.cur];if(!p||!S.active)return;const i=p.cells.indexOf(S.active);if(i>=0)p.cells.splice(i,1);S.active=null;renderActiveBox();buildCells();render();renderSelTable();renderList()};
 function renderSelTable(){const tb=$("selTable");tb.innerHTML="";const p=S.pages[S.cur];if(!p)return;const sel=p.cells.map((c,i)=>({...c,idx:i})).filter(c=>c.selected);if(!sel.length){tb.innerHTML='<tr><td colspan="4" style="color:#888">尚未選取（點圖上亮光格即選取）</td></tr>';return}
 sel.forEach(c=>{const tr=document.createElement("tr");tr.innerHTML=`<td>${c.idx+1}</td><td><select data-t="${c.idx}"><option value="hanzi">漢字</option><option value="side">右注音</option><option value="only">純注音</option></select></td><td><input data-h="${c.idx}" value="${c.hanzi||""}" maxlength="4" placeholder="漢/注音"></td><td><input data-z="${c.idx}" value="${c.zhuyin||""}" maxlength="6" placeholder="ㄅㄆㄇ"></td>`;tb.appendChild(tr)});
 tb.querySelectorAll("[data-t]").forEach(s=>{s.value=p.cells[+s.dataset.t].type; s.onchange=()=>{p.cells[+s.dataset.t].type=s.value;buildCells();render()}});
