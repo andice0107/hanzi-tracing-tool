@@ -138,7 +138,7 @@ kbd{background:#eee;border:1px solid #ccc;border-radius:4px;padding:0 4px;font-s
 <div class="hint" id="exportMsg">匯出時：原上傳畫面 1:1 保留、置中放入直式 A4，其餘留白，只疊加你選取格的虛線字。</div>
 <h3>手動補格</h3>
 <div class="row"><label>列</label><input type="number" id="mRows" value="5" style="width:60px"><label>欄</label><input type="number" id="mCols" value="7" style="width:60px"></div>
-<div class="row"><label>欄型</label><select id="mPattern"><option value="hanzi">全部漢字大格</option><option value="hanzi-zhuyin">漢字+右側注音交替（大+窄）</option><option value="zhuyin">全部純注音格</option></select></div>
+<div class="row"><label>欄型</label><select id="mPattern"><option value="hanzi">全部漢字大格</option><option value="hanzi-zhuyin">漢字+右側注音交替（大+窄）</option><option value="zhuyin">全部純注音格</option><option value="side">全部側注音格（窄）</option></select><label>框選模式</label><select id="mMode" style="width:auto"><option value="grid">手動均分列欄</option><option value="smart">智慧抓格（框內自動找線）</option></select></div>
 <div class="hint">手動流程：按「手動框選補格」→ 在圖上拖曳 → 放開後依此列欄數自動切成田字格（可連續拖多格，再按一次按鈕結束；邊緣會自動吸附格線）。各家版本排版不同時用此法最穩。</div>
 </div>
 </div>
@@ -221,7 +221,7 @@ p.cells.sort((a,b)=>(a._col-b._col)||(a.y-b.y)||(a.x-b.x));
 p.cells.forEach(c=>delete c._col)}
 const pageImg=$("pageImg"),overlay=$("overlay"),cellLayer=$("cellLayer");
 function viewScale(){return pageImg.clientWidth/pageImg.naturalWidth||1}
-function buildCells(){cellLayer.innerHTML="";const p=S.pages[S.cur];if(!p)return;const s=viewScale();overlay.width=pageImg.clientWidth;overlay.height=pageImg.clientHeight;p.cells.forEach((c,idx)=>{const d=document.createElement("div");let cls=c.selected?"selected":(c.auto===true?(c.blank?"auto":"filled"):"auto");if(S.mergeSet.indexOf(c)>=0)cls+=" pick";if(S.active===c)cls+=" cur";d.className="cell "+cls;d.style.left=(c.x*s)+"px";d.style.top=(c.y*s)+"px";d.style.width=(c.w*s)+"px";d.style.height=(c.h*s)+"px";const t=c.type==="hanzi"?"漢":c.type==="side"?"注":"音";d.innerHTML=`<span class="tag">${idx+1}${t}</span><span class="ch">${(c.hanzi||"")+ (c.zhuyin?" "+c.zhuyin:"")}</span>`;d.title=`${idx+1} ${c.type} 點擊選取/取消`;d.onclick=ev=>{ev.stopPropagation();if(S.probe){probeCell(c);return}
+function buildCells(){cellLayer.innerHTML="";const p=S.pages[S.cur];if(!p)return;const s=viewScale();overlay.width=pageImg.clientWidth;overlay.height=pageImg.clientHeight;p.cells.forEach((c,idx)=>{const d=document.createElement("div");let cls=c.selected?"selected":(c.auto===true?(c.blank?"auto":"filled"):"auto");if(S.mergeSet.indexOf(c)>=0)cls+=" pick";if(S.active===c)cls+=" cur";d.className="cell "+cls;d.style.left=(c.x*s)+"px";d.style.top=(c.y*s)+"px";d.style.width=(c.w*s)+"px";d.style.height=(c.h*s)+"px";const t=c.type==="hanzi"?"漢":c.type==="side"?"注":"音";d.innerHTML=`<span class="tag">${idx+1}${t}</span><span class="ch">${(c.hanzi||"")+ (c.zhuyin?" "+c.zhuyin:"")}</span>`;d.title=`${idx+1} ${c.type} 點擊選取/取消`;d.onclick=ev=>{ev.stopPropagation();if(S.manualMode)return;if(S.probe){probeCell(c);return}
 if(S.cutMode&&S.active&&p.cells.indexOf(S.active)>=0){const r=$("viewerWrap").getBoundingClientRect();const s=viewScale();const fx=(ev.clientX-r.left)/s,fy=(ev.clientY-r.top)/s;
 if(fx>S.active.x&&fx<S.active.x+S.active.w&&fy>S.active.y&&fy<S.active.y+S.active.h){cutActive(S.cutMode,(S.cutMode==="v"?fx:fy));S.cutMode=null;syncCutBtn();buildCells();render();renderSelTable();renderList();return}}
 if(S.mergeMode){const i=S.mergeSet.indexOf(c);if(i>=0)S.mergeSet.splice(i,1);else S.mergeSet.push(c);buildCells();render();return}
@@ -246,8 +246,7 @@ const colP=new Float32Array(cw),rowP=new Float32Array(ch);
 for(let y=0;y<ch;y++)for(let x=0;x<cw;x++)if(mask[y*cw+x]){colP[x]++;rowP[y]++}
 const thX=ch*(0.10+sens*0.035),thY=cw*(0.10+sens*0.035);
 let xs=peaks(colP,thX*0.5),ys=peaks(rowP,thY*0.5); // 門檻放半取候選，後面以跨欄連續度精分
-// 過濾太密的碎線（與上一個保留的比，避免雜峰連累真線）
-function thinLines(a,tol){const f=[];for(const v of a){if(!f.length||v-f[f.length-1]>tol)f.push(v)}return f}
+// 過濾太密的碎線（全域共用）
 xs=thinLines(xs,cw*0.008);ys=thinLines(ys,ch*0.008);
 // 線段分類：切段看連續度。實線＝任一段≥0.9；虛線＝跨3段以上且段段0.25~0.9；內容干擾兩邊不沾
 // 線段分類：沿線滑窗量連續度（不依賴正交線，文字梳狀干擾下仍穩）。
@@ -346,6 +345,8 @@ sortCellsVertical(p);
 const nBlank=kept.filter(c=>c.blank).length;
 S.mergeSet=[];
 buildCells();render();renderSelTable();renderList();alert(`自動掃描完成：新增 ${kept.length} 個田字格，其中 ${nBlank} 個空白格已自動選取（黃色亮光，會印虛線）；${kept.length-nBlank} 個有字/標籤格僅框出不選（灰色）。訂正大格、標籤條已排除。`)}
+// 過濾太密的碎線（與上一個保留的比，避免雜峰連累真線）
+function thinLines(a,tol){const f=[];for(const v of a){if(!f.length||v-f[f.length-1]>tol)f.push(v)}return f}
 function peaks(arr,th){const out=[],W=12,promT=th*0.5;
 for(let j=0;j<arr.length;j++){if(arr[j]<=th)continue;
 const l=j>0?arr[j-1]:-Infinity,r=j<arr.length-1?arr[j+1]:-Infinity;
@@ -359,22 +360,61 @@ function mergeLines(a){return a} // 保留相容（未使用）
 let drag=null;
 $("btnManual").onclick=()=>{S.manualMode=!S.manualMode;$("btnManual").textContent=S.manualMode?"❌ 取消框選（拖曳中…）":"✏️ 手動框選補格";$("btnManual").classList.toggle("primary",S.manualMode)};
 cellLayer.style.pointerEvents="auto";
-pageImg.addEventListener("pointerdown",e=>{if(!S.manualMode)return;const r=$("viewerWrap").getBoundingClientRect();drag={x0:e.clientX-r.left,y0:e.clientY-r.top};e.preventDefault()});
+cellLayer.addEventListener("pointerdown",e=>{if(!S.manualMode||S.probe)return;const r=$("viewerWrap").getBoundingClientRect();drag={x0:e.clientX-r.left,y0:e.clientY-r.top};e.preventDefault()});
 window.addEventListener("pointermove",e=>{if(!drag)return;const r=$("viewerWrap").getBoundingClientRect();const x=e.clientX-r.left,y=e.clientY-r.top;const dr=$("dragRect");dr.style.display="block";dr.style.left=Math.min(drag.x0,x)+"px";dr.style.top=Math.min(drag.y0,y)+"px";dr.style.width=Math.abs(x-drag.x0)+"px";dr.style.height=Math.abs(y-drag.y0)+"px"});
-window.addEventListener("pointerup",e=>{if(!drag)return;const r=$("viewerWrap").getBoundingClientRect();const x=e.clientX-r.left,y=e.clientY-r.top;const rx=Math.min(drag.x0,x),ry=Math.min(drag.y0,y),rw=Math.abs(x-drag.x0),rh=Math.abs(y-drag.y0);$("dragRect").style.display="none";drag=null;if(rw<20||rh<20)return;manualSplit(rx,ry,rw,rh)});
+window.addEventListener("pointerup",e=>{if(!drag)return;const r=$("viewerWrap").getBoundingClientRect();const x=e.clientX-r.left,y=e.clientY-r.top;const rx=Math.min(drag.x0,x),ry=Math.min(drag.y0,y),rw=Math.abs(x-drag.x0),rh=Math.abs(y-drag.y0);$("dragRect").style.display="none";drag=null;if(rw<20||rh<20)return;if($("mMode").value==="smart")smartSplit(rx,ry,rw,rh);else manualSplit(rx,ry,rw,rh)});
 function manualSplit(rx,ry,rw,rh){const p=S.pages[S.cur];if(!p)return;const s=viewScale();const rows=Math.max(1,+($("mRows").value||1)),cols=Math.max(1,+($("mCols").value||1));const pat=$("mPattern").value;
 let X=rx/s,Y=ry/s,W=rw/s,H=rh/s;
 // 邊界吸附：貼齊已偵測到的格線（12px 內），手拖的格子自動對齊
 if(p.lines){const snap=(v,ls)=>{let b=v,bd=12;for(const l of ls){const dd=Math.abs(l-v);if(dd<bd){bd=dd;b=l}}return b};
 const nx=snap(X,p.lines.xs),nx2=snap(X+W,p.lines.xs),ny=snap(Y,p.lines.ys),ny2=snap(Y+H,p.lines.ys);
 if(nx2>nx){X=nx;W=nx2-nx}if(ny2>ny){Y=ny;H=ny2-ny}}const rh_=H/rows;
-if(pat==="hanzi"||pat==="zhuyin"){const cw_=W/cols;const single=rows===1&&cols===1;
-for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){let tp=pat==="hanzi"?"hanzi":"only";
+if(pat==="hanzi"||pat==="zhuyin"||pat==="side"){const cw_=W/cols;const single=rows===1&&cols===1;
+const patType=pat==="hanzi"?"hanzi":pat==="side"?"side":"only";
+for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){let tp=patType;
 if(single){const ar1=cw_/rh_;tp=ar1<0.62?(S.layoutMode==="pure"?"only":"side"):(S.layoutMode==="pure"?"only":"hanzi")}
 p.cells.push({x:X+c*cw_,y:Y+r*rh_,w:cw_,h:rh_,type:tp,selected:true,hanzi:"",zhuyin:"",dx:0,dy:0,sc:1,auto:false})}}
 else{ // 漢字+右側注音交替：每組=大格+窄格(窄約0.32倍)
 for(let r=0;r<rows;r++){let cx=X;const pairs=Math.floor(cols/2);const rem=cols%2;const unit=W/(pairs*1.32+(rem?1:0));for(let k=0;k<pairs;k++){p.cells.push({x:cx,y:Y+r*rh_,w:unit,h:rh_,type:"hanzi",selected:true,hanzi:"",zhuyin:"",dx:0,dy:0,sc:1});cx+=unit;p.cells.push({x:cx,y:Y+r*rh_,w:unit*0.32,h:rh_,type:"side",selected:true,hanzi:"",zhuyin:"",dx:0,dy:0,sc:1});cx+=unit*0.32}if(rem)p.cells.push({x:cx,y:Y+r*rh_,w:unit,h:rh_,type:"hanzi",selected:true,hanzi:"",zhuyin:"",dx:0,dy:0,sc:1})}}
 sortCellsVertical(p);buildCells();render();renderSelTable();renderList()}
+function smartSplit(rx,ry,rw,rh){const p=S.pages[S.cur];if(!p)return alert("請先上傳");
+const s=viewScale();let X=rx/s,Y=ry/s,W=rw/s,H=rh/s;
+const maxW=900,sc=Math.min(1,maxW/p.w);const cw=Math.round(p.w*sc),ch=Math.round(p.h*sc);
+const cv=document.createElement("canvas");cv.width=cw;cv.height=ch;const ctx=cv.getContext("2d",{willReadFrequently:true});ctx.drawImage(p.img,0,0,cw,ch);
+const d=ctx.getImageData(0,0,cw,ch).data;
+const ax0=Math.max(0,Math.floor(X*sc)),ax1=Math.min(cw-1,Math.ceil((X+W)*sc)),ay0=Math.max(0,Math.floor(Y*sc)),ay1=Math.min(ch-1,Math.ceil((Y+H)*sc));
+if(ax1-ax0<20||ay1-ay0<20){alert("框選範圍太小，拖大一點再放開。");return}
+const pxAtR=(x,y)=>[d[(y*cw+x)*4],d[(y*cw+x)*4+1],d[(y*cw+x)*4+2]];
+const isInk=(x,y)=>{const[R,G,B]=pxAtR(x,y);const mn=Math.min(R,G,B),mx=Math.max(R,G,B);return!(mn>140&&(mx-mn)<45)&&((B>90&&B-R>18&&B-G>6)||Math.max(R,G,B)<110)};
+const colP=new Float32Array(ax1-ax0+1),rowP=new Float32Array(ay1-ay0+1);
+for(let y=ay0;y<=ay1;y++)for(let x=ax0;x<=ax1;x++)if(isInk(x,y)){colP[x-ax0]++;rowP[y-ay0]++}
+const sens=+($("sens").value);
+const thX=(ay1-ay0+1)*(0.10+sens*0.035),thY=(ax1-ax0+1)*(0.10+sens*0.035);
+let xs=peaks(colP,thX*0.5).map(v=>v+ax0),ys=peaks(rowP,thY*0.5).map(v=>v+ay0);
+xs=thinLines(xs,Math.max(3,(ax1-ax0)*0.008));ys=thinLines(ys,Math.max(3,(ay1-ay0)*0.008));
+// 範圍內以覆蓋率分實線（整段八成以上）與虛線/內容；實線另須碰到範圍上下邊（印刷筆劃碰不到邊）
+function covV(x){let c=0;for(let y=ay0;y<=ay1;y++)if(isInk(x,y))c++;return c/(ay1-ay0+1)}
+function covH(y){let c=0;for(let x=ax0;x<=ax1;x++)if(isInk(x,y))c++;return c/(ax1-ax0+1)}
+function edgeV(x){let a=false,b=false;for(let y=ay0;y<=Math.min(ay1,ay0+3);y++)if(isInk(x,y))a=true;for(let y=Math.max(ay0,ay1-3);y<=ay1;y++)if(isInk(x,y))b=true;return a&&b}
+function edgeH(y){let a=false,b=false;for(let x=ax0;x<=Math.min(ax1,ax0+3);x++)if(isInk(x,y))a=true;for(let x=Math.max(ax0,ax1-3);x<=ax1;x++)if(isInk(x,y))b=true;return a&&b}
+xs=xs.filter(x=>covV(x)>=0.8&&edgeV(x));ys=ys.filter(y=>covH(y)>=0.8&&edgeH(y));
+if(xs.length<2||ys.length<2){alert(`框內只找到 ${xs.length} 條垂直線 / ${ys.length} 條水平線，框大一點（多含幾格）或切手動均分。`);return}
+const pat=$("mPattern").value;
+const made=[];
+for(let j=0;j<ys.length-1;j++)for(let i=0;i<xs.length-1;i++){
+let x0=xs[i]/sc,y0=ys[j]/sc,w=(xs[i+1]-xs[i])/sc,h=(ys[j+1]-ys[j])/sc;
+if(w<14||h<14)continue;const ar=w/h;
+if(pat==="side"&&ar>=0.62)continue;
+if((pat==="hanzi"||pat==="zhuyin")&&ar<0.62)continue;
+const type=ar<0.62?"side":(pat==="zhuyin"?"only":"hanzi");
+made.push({x:x0,y:y0,w,h,type,selected:true,hanzi:"",zhuyin:"",dx:0,dy:0,sc:1,auto:false})}
+if(!made.length){alert("框內組不出格子，換個範圍或欄型再試。");return}
+let n=0;for(const c of made){const cx=c.x+c.w/2,cy=c.y+c.h/2;let dup=false;
+for(const k of p.cells){const ix0=Math.max(c.x,k.x),iy0=Math.max(c.y,k.y),ix1=Math.min(c.x+c.w,k.x+k.w),iy1=Math.min(c.y+c.h,k.y+k.h);
+const iw=Math.max(0,ix1-ix0),ih=Math.max(0,iy1-iy0),inter=iw*ih,union=c.w*c.h+k.w*k.h-inter;
+if(union>0&&(inter/union>0.45||inter/Math.min(c.w*c.h,k.w*k.h)>0.8)){dup=true;break}}
+if(!dup){p.cells.push(c);n++}}
+sortCellsVertical(p);buildCells();render();renderSelTable();renderList();alert(`智慧抓格完成：新增 ${n} 格（欄型：${$("mPattern").selectedOptions[0].textContent}）。框選的格子預設全選。`)}
 $("btnClearCells").onclick=()=>{const p=S.pages[S.cur];if(!p)return;if(!confirm("清除本頁全部格子？"))return;p.cells=[];S.active=null;S.mergeSet=[];buildCells();render();renderSelTable();renderList()};
 // ---------- 選取 ----------
 $("btnSelAll").onclick=()=>{S.pages[S.cur]?.cells.forEach(c=>c.selected=true);buildCells();render();renderSelTable();renderList()};
@@ -468,7 +508,7 @@ $("btnPDF").onclick=async()=>{if(!S.pages.length)return alert("請先上傳");$(
 function dl(url,name){const a=document.createElement("a");a.href=url;a.download=name;a.click()}
 updLabels();refreshFonts();tryBuiltin();
 // ---------- 取色探針（放腳本尾，運行期才用，不影響載入） ----------
-$("btnProbe").onclick=()=>{S.probe=!S.probe;$("btnProbe").classList.toggle("primary",S.probe);$("probeBox").style.display=S.probe?"block":"none";if(S.probe)$("probeOut").textContent="已開啟：點任一格看數據，點圖上空白處取該點顏色。"};
+$("btnProbe").onclick=()=>{S.probe=!S.probe;$("btnProbe").classList.toggle("primary",S.probe);$("probeBox").style.display=S.probe?"block":"none";if(S.probe){$("probeOut").textContent="已開啟：點任一格看數據，點圖上空白處取該點顏色。";$("probeBox").scrollIntoView({block:"nearest"})}};
 cellLayer.addEventListener("click",e=>{if(!S.probe||e.target!==cellLayer)return;const r=$("viewerWrap").getBoundingClientRect();probePixel(e.clientX-r.left,e.clientY-r.top)});
 // 雙擊空白處建格：大小跟本頁多數格一樣，點兩下就是可編輯目標
 cellLayer.addEventListener("dblclick",e=>{if(S.probe||S.manualMode||e.target!==cellLayer)return;const p=S.pages[S.cur];if(!p)return;
