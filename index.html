@@ -108,8 +108,10 @@ kbd{background:#eee;border:1px solid #ccc;border-radius:4px;padding:0 4px;font-s
 <button id="btnSplitH" class="small">左右剖半</button>
 <button id="btnSplitV" class="small">上下剖半</button>
 <button id="btnSplit4" class="small">四等分</button>
+<button id="btnCutV" class="small">垂直下刀</button>
+<button id="btnCutH" class="small">水平下刀</button>
 </div>
-<div class="hint" style="max-width:820px">整併：開合併模式後點多格（藍框）→執行合併成一格；拆分：點一格（紅框）→選剖半或四等分；掃描漏框：在空白處雙擊直接長出一格，或用「＋手拖加一格」拖（可連拖，邊緣自動吸附格線）。合併/拆分/手加的格子預設選取，內容清空請重填。</div>
+<div class="hint" style="max-width:820px">整併：開合併模式後點多格（藍框）→執行合併成一格；拆分：點一格（紅框）→選剖半、四等分，或按「垂直/水平下刀」後直接點格內要切的位置；掃描漏框：在空白處雙擊直接長出一格，或用「＋手拖加一格」拖（可連拖，邊緣自動吸附格線）。作用中格可用 Alt+方向鍵微調位置、Alt+Shift+方向鍵調大小。合併/拆分/手加的格子預設選取，內容清空請重填。</div>
 </div>
 <div id="right">
 <h3>3. 本頁選取格內容（虛線要寫什麼字）</h3>
@@ -143,7 +145,7 @@ kbd{background:#eee;border:1px solid #ccc;border-radius:4px;padding:0 4px;font-s
 <div id="dropHint">📥 放開以加入檔案<span>PDF / 圖片 → 新增作業內頁分頁　・　字體檔（.ttf / .otf / .woff2 / .ttc）→ 加入字體庫</span></div>
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-const S={pages:[],cur:-1,fonts:[{id:"builtin-hanzi",name:"內建漢字虛線字體",family:"BuiltinHanzi",locked:true,loaded:false},{id:"builtin-zhuyin",name:"內建注音虛線字體",family:"BuiltinZhuyin",locked:true,loaded:false}],fontFamHanzi:"BuiltinHanzi",fontFamZhuyin:"BuiltinZhuyin",manualMode:false,layoutMode:"auto",active:null,probe:false,mergeMode:false,mergeSet:[]};
+const S={pages:[],cur:-1,fonts:[{id:"builtin-hanzi",name:"內建漢字虛線字體",family:"BuiltinHanzi",locked:true,loaded:false},{id:"builtin-zhuyin",name:"內建注音虛線字體",family:"BuiltinZhuyin",locked:true,loaded:false}],fontFamHanzi:"BuiltinHanzi",fontFamZhuyin:"BuiltinZhuyin",manualMode:false,layoutMode:"auto",active:null,probe:false,mergeMode:false,mergeSet:[],cutMode:null};
 const $=id=>document.getElementById(id);
 const fileInput=$("fileInput"),fontInput=$("fontInput");
 // ---------- 字體（漢字格 / 注音格可各選一種） ----------
@@ -220,6 +222,8 @@ p.cells.forEach(c=>delete c._col)}
 const pageImg=$("pageImg"),overlay=$("overlay"),cellLayer=$("cellLayer");
 function viewScale(){return pageImg.clientWidth/pageImg.naturalWidth||1}
 function buildCells(){cellLayer.innerHTML="";const p=S.pages[S.cur];if(!p)return;const s=viewScale();overlay.width=pageImg.clientWidth;overlay.height=pageImg.clientHeight;p.cells.forEach((c,idx)=>{const d=document.createElement("div");let cls=c.selected?"selected":(c.auto===true?(c.blank?"auto":"filled"):"auto");if(S.mergeSet.indexOf(c)>=0)cls+=" pick";if(S.active===c)cls+=" cur";d.className="cell "+cls;d.style.left=(c.x*s)+"px";d.style.top=(c.y*s)+"px";d.style.width=(c.w*s)+"px";d.style.height=(c.h*s)+"px";const t=c.type==="hanzi"?"漢":c.type==="side"?"注":"音";d.innerHTML=`<span class="tag">${idx+1}${t}</span><span class="ch">${(c.hanzi||"")+ (c.zhuyin?" "+c.zhuyin:"")}</span>`;d.title=`${idx+1} ${c.type} 點擊選取/取消`;d.onclick=ev=>{ev.stopPropagation();if(S.probe){probeCell(c);return}
+if(S.cutMode&&S.active&&p.cells.indexOf(S.active)>=0){const r=$("viewerWrap").getBoundingClientRect();const s=viewScale();const fx=(ev.clientX-r.left)/s,fy=(ev.clientY-r.top)/s;
+if(fx>S.active.x&&fx<S.active.x+S.active.w&&fy>S.active.y&&fy<S.active.y+S.active.h){cutActive(S.cutMode,(S.cutMode==="v"?fx:fy));S.cutMode=null;syncCutBtn();buildCells();render();renderSelTable();renderList();return}}
 if(S.mergeMode){const i=S.mergeSet.indexOf(c);if(i>=0)S.mergeSet.splice(i,1);else S.mergeSet.push(c);buildCells();render();return}
 c.selected=!c.selected;S.active=c;renderActiveBox();buildCells();render();renderSelTable()};cellLayer.appendChild(d)});$("cellCount").textContent=`已框 ${p.cells.length} 個田字格，已選 ${p.cells.filter(c=>c.selected).length} 格`;renderActiveBox()}
 window.addEventListener("resize",()=>{buildCells();render()});
@@ -394,6 +398,31 @@ S.active=null;sortCellsVertical(p);buildCells();render();renderSelTable();render
 $("btnSplitH").onclick=()=>splitActive(2,1);
 $("btnSplitV").onclick=()=>splitActive(1,2);
 $("btnSplit4").onclick=()=>splitActive(2,2);
+// 點哪切哪：在紅框格裡點一下，刀就下在那裡
+function syncCutBtn(){$("btnCutV").classList.toggle("primary",S.cutMode==="v");$("btnCutH").classList.toggle("primary",S.cutMode==="h");
+$("btnCutV").textContent=S.cutMode==="v"?"垂直下刀：點格內切":"垂直下刀";$("btnCutH").textContent=S.cutMode==="h"?"水平下刀：點格內切":"水平下刀"}
+$("btnCutV").onclick=()=>{S.cutMode=S.cutMode==="v"?null:"v";syncCutBtn();if(S.cutMode&&!S.active)alert("先點一格（紅框），再按 "+(S.cutMode==="v"?"垂直":"水平")+"下刀，最後點格內要切的位置。")};
+$("btnCutH").onclick=()=>{S.cutMode=S.cutMode==="h"?null:"h";syncCutBtn();if(S.cutMode&&!S.active)alert("先點一格（紅框），再按 "+(S.cutMode==="v"?"垂直":"水平")+"下刀，最後點格內要切的位置。")};
+function cutActive(dir,at){const p=S.pages[S.cur];const c=S.active;if(!p||!c||p.cells.indexOf(c)<0)return;
+if(dir==="v"){if(at-c.x<8||c.x+c.w-at<8){alert("切的位置太靠近邊，請點中間一點。");return}
+p.cells.splice(p.cells.indexOf(c),1);
+const w1=at-c.x,w2=c.x+c.w-at;
+p.cells.push({x:c.x,y:c.y,w:w1,h:c.h,type:newTypeByAspect(w1,c.h),selected:true,hanzi:c.hanzi,zhuyin:c.zhuyin,dx:0,dy:0,sc:1,auto:false});
+p.cells.push({x:at,y:c.y,w:w2,h:c.h,type:newTypeByAspect(w2,c.h),selected:true,hanzi:"",zhuyin:"",dx:0,dy:0,sc:1,auto:false})}
+else{if(at-c.y<8||c.y+c.h-at<8){alert("切的位置太靠近邊，請點中間一點。");return}
+p.cells.splice(p.cells.indexOf(c),1);
+const h1=at-c.y,h2=c.y+c.h-at;
+p.cells.push({x:c.x,y:c.y,w:c.w,h:h1,type:newTypeByAspect(c.w,h1),selected:true,hanzi:c.hanzi,zhuyin:c.zhuyin,dx:0,dy:0,sc:1,auto:false});
+p.cells.push({x:c.x,y:at,w:c.w,h:h2,type:newTypeByAspect(c.w,h2),selected:true,hanzi:"",zhuyin:"",dx:0,dy:0,sc:1,auto:false})}
+S.active=null}
+// 鍵盤微調：Alt+方向鍵移動作用中格，Alt+Shift+方向鍵調右下角大小（焦點不在輸入框時）
+window.addEventListener("keydown",e=>{if(!e.altKey||!S.active)return;const t=e.target;if(t&&(t.tagName==="INPUT"||t.tagName==="TEXTAREA"||t.tagName==="SELECT"))return;
+const p=S.pages[S.cur];if(!p||p.cells.indexOf(S.active)<0)return;const st=e.shiftKey?4:2;let used=true;
+if(e.key==="ArrowLeft"){if(e.shiftKey)S.active.w=Math.max(6,S.active.w-st);else S.active.x-=st}
+else if(e.key==="ArrowRight"){if(e.shiftKey)S.active.w+=st;else S.active.x+=st}
+else if(e.key==="ArrowUp"){if(e.shiftKey)S.active.h=Math.max(6,S.active.h-st);else S.active.y-=st}
+else if(e.key==="ArrowDown"){if(e.shiftKey)S.active.h+=st;else S.active.y+=st}
+else used=false;if(used){e.preventDefault();renderActiveBox();buildCells();render()}});
 $("btnCopyUp").onclick=()=>{const p=S.pages[S.cur];if(!p)return;let n=0;const cs=[...p.cells].sort((a,b)=>a.y-b.y||a.x-b.x);for(const c of cs){if(!c.selected||c.hanzi||c.zhuyin)continue;const above=cs.filter(k=>Math.abs((k.x+k.w/2)-(c.x+c.w/2))<Math.min(k.w,c.w)*0.5&&k.y+k.h<=c.y+2&&(k.hanzi||k.zhuyin)).pop();if(above){c.hanzi=above.hanzi;c.zhuyin=above.zhuyin;n++}}buildCells();render();renderSelTable();alert(n?`已從上一列複製 ${n} 格`:"找不到上方有字的對應格（請先在上一列輸入漢字/注音，或改用快速填入）")};
 // ---------- 內容 ----------
 $("btnQuickFill").onclick=()=>{const p=S.pages[S.cur];if(!p)return;const s=$("quickHanzi").value.replace(/\s+/g,"");if(!s)return alert("請先輸入漢字串");const sel=p.cells.filter(c=>c.selected&&c.type==="hanzi");if(!sel.length)return alert("請先選取漢字格");sel.forEach((c,i)=>{if(i<s.length)c.hanzi=s[i]});buildCells();render();renderSelTable()};
