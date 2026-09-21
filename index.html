@@ -33,6 +33,8 @@ button.small{padding:3px 8px;font-size:12px}
 .cell.auto{border-color:rgba(0,200,255,.9);background:rgba(0,220,255,.14);box-shadow:0 0 8px rgba(0,210,255,.9)}
 .cell.selected{border-color:#ff9800;background:rgba(255,213,79,.35);box-shadow:0 0 12px 3px rgba(255,180,0,.95)}
 .cell.filled{border-color:rgba(150,150,150,.75);background:rgba(160,160,160,.15)} /* 有字範例格：框出但不預選 */
+.cell.pick{outline:2px dashed #0066ff;outline-offset:-2px} /* 合併模式勾選中 */
+.cell.cur{outline:2px solid #f00;outline-offset:-4px} /* 點到的作用中格（可剖分/微調） */
 .cell .tag{position:absolute;top:0;left:0;font-size:10px;background:rgba(0,0,0,.65);color:#fff;padding:0 4px;border-radius:0 0 6px 0;pointer-events:none}
 .cell .ch{pointer-events:none;font-weight:700;text-shadow:0 0 3px #fff}
 .row{display:flex;gap:6px;align-items:center;margin:6px 0;flex-wrap:wrap}
@@ -100,6 +102,14 @@ kbd{background:#eee;border:1px solid #ccc;border-radius:4px;padding:0 4px;font-s
 <button id="btnSelBlank" class="small">只選空白格</button>
 <button id="btnCopyUp" class="small">從上一列複製（描上一列）</button>
 </div>
+<div class="row">格子整併：
+<button id="btnMergeMode" class="small">合併模式：關</button>
+<button id="btnMergeGo" class="small">執行合併</button>
+<button id="btnSplitH" class="small">左右剖半</button>
+<button id="btnSplitV" class="small">上下剖半</button>
+<button id="btnSplit4" class="small">四等分</button>
+</div>
+<div class="hint" style="max-width:820px">整併：開合併模式後點多格（藍框）→執行合併成一格；拆分：點一格（紅框）→選剖半或四等分；掃描漏框：用「＋手拖加一格」直接畫。合併/拆分後的格子預設選取，內容清空請重填。</div>
 </div>
 <div id="right">
 <h3>3. 本頁選取格內容（虛線要寫什麼字）</h3>
@@ -133,7 +143,7 @@ kbd{background:#eee;border:1px solid #ccc;border-radius:4px;padding:0 4px;font-s
 <div id="dropHint">📥 放開以加入檔案<span>PDF / 圖片 → 新增作業內頁分頁　・　字體檔（.ttf / .otf / .woff2 / .ttc）→ 加入字體庫</span></div>
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-const S={pages:[],cur:-1,fonts:[{id:"builtin-hanzi",name:"內建漢字虛線字體",family:"BuiltinHanzi",locked:true,loaded:false},{id:"builtin-zhuyin",name:"內建注音虛線字體",family:"BuiltinZhuyin",locked:true,loaded:false}],fontFamHanzi:"BuiltinHanzi",fontFamZhuyin:"BuiltinZhuyin",manualMode:false,layoutMode:"auto",active:null,probe:false};
+const S={pages:[],cur:-1,fonts:[{id:"builtin-hanzi",name:"內建漢字虛線字體",family:"BuiltinHanzi",locked:true,loaded:false},{id:"builtin-zhuyin",name:"內建注音虛線字體",family:"BuiltinZhuyin",locked:true,loaded:false}],fontFamHanzi:"BuiltinHanzi",fontFamZhuyin:"BuiltinZhuyin",manualMode:false,layoutMode:"auto",active:null,probe:false,mergeMode:false,mergeSet:[]};
 const $=id=>document.getElementById(id);
 const fileInput=$("fileInput"),fontInput=$("fontInput");
 // ---------- 字體（漢字格 / 注音格可各選一種） ----------
@@ -196,7 +206,7 @@ function loadImg(src){return new Promise((res,rej)=>{const i=new Image();i.onloa
 async function addImageFile(f){const url=URL.createObjectURL(f);const img=await loadImg(url);S.pages.push({name:f.name,img,cells:[],w:img.naturalWidth,h:img.naturalHeight})}
 async function addPDF(f){const buf=await f.arrayBuffer();const pdf=await pdfjsLib.getDocument({data:buf}).promise;for(let p=1;p<=pdf.numPages;p++){const page=await pdf.getPage(p);const vp=page.getViewport({scale:2});const cv=document.createElement("canvas");cv.width=vp.width;cv.height=vp.height;await page.render({canvasContext:cv.getContext("2d"),viewport:vp}).promise;const img=await loadImg(cv.toDataURL("png"));S.pages.push({name:`${f.name}#p${p}`,img,cells:[],w:img.naturalWidth,h:img.naturalHeight})}}
 function renderList(){const L=$("pageList");L.innerHTML="";S.pages.forEach((p,i)=>{const d=document.createElement("div");d.className="page-tab"+(i===S.cur?" active":"");d.innerHTML=`<img src="${p.img.src}"><div><b>${i+1}. ${p.name}</b><br>${p.cells.length} 田字格 / ${p.cells.filter(c=>c.selected).length} 已選</div>`;d.onclick=()=>switchPage(i);L.appendChild(d)})}
-function switchPage(i){S.cur=i;S.active=null;const p=S.pages[i];if(!p)return;$("pageTitle").textContent=`第 ${i+1} 頁 / 共 ${S.pages.length} 頁 — ${p.name}`;$("pageImg").src=p.img.src;renderList();$("pageImg").onload=()=>{buildCells();render()}}
+function switchPage(i){S.cur=i;S.active=null;S.mergeSet=[];const p=S.pages[i];if(!p)return;$("pageTitle").textContent=`第 ${i+1} 頁 / 共 ${S.pages.length} 頁 — ${p.name}`;$("pageImg").src=p.img.src;renderList();$("pageImg").onload=()=>{buildCells();render()}}
 // ---------- 顯示/疊加 ----------
 // 直式排序：國語作業由右而左、由上而下。欄由右排到左，欄內由上而下
 function sortCellsVertical(p){if(!p.cells.length)return;
@@ -209,7 +219,9 @@ p.cells.sort((a,b)=>(a._col-b._col)||(a.y-b.y)||(a.x-b.x));
 p.cells.forEach(c=>delete c._col)}
 const pageImg=$("pageImg"),overlay=$("overlay"),cellLayer=$("cellLayer");
 function viewScale(){return pageImg.clientWidth/pageImg.naturalWidth||1}
-function buildCells(){cellLayer.innerHTML="";const p=S.pages[S.cur];if(!p)return;const s=viewScale();overlay.width=pageImg.clientWidth;overlay.height=pageImg.clientHeight;p.cells.forEach((c,idx)=>{const d=document.createElement("div");const cls=c.selected?"selected":(c.auto===true?(c.blank?"auto":"filled"):"auto");d.className="cell "+cls;d.style.left=(c.x*s)+"px";d.style.top=(c.y*s)+"px";d.style.width=(c.w*s)+"px";d.style.height=(c.h*s)+"px";const t=c.type==="hanzi"?"漢":c.type==="side"?"注":"音";d.innerHTML=`<span class="tag">${idx+1}${t}</span><span class="ch">${(c.hanzi||"")+ (c.zhuyin?" "+c.zhuyin:"")}</span>`;d.title=`${idx+1} ${c.type} 點擊選取/取消`;d.onclick=ev=>{ev.stopPropagation();if(S.probe){probeCell(c);return}c.selected=!c.selected;S.active=c;renderActiveBox();buildCells();render();renderSelTable()};cellLayer.appendChild(d)});$("cellCount").textContent=`已框 ${p.cells.length} 個田字格，已選 ${p.cells.filter(c=>c.selected).length} 格`;renderActiveBox()}
+function buildCells(){cellLayer.innerHTML="";const p=S.pages[S.cur];if(!p)return;const s=viewScale();overlay.width=pageImg.clientWidth;overlay.height=pageImg.clientHeight;p.cells.forEach((c,idx)=>{const d=document.createElement("div");let cls=c.selected?"selected":(c.auto===true?(c.blank?"auto":"filled"):"auto");if(S.mergeSet.indexOf(c)>=0)cls+=" pick";if(S.active===c)cls+=" cur";d.className="cell "+cls;d.style.left=(c.x*s)+"px";d.style.top=(c.y*s)+"px";d.style.width=(c.w*s)+"px";d.style.height=(c.h*s)+"px";const t=c.type==="hanzi"?"漢":c.type==="side"?"注":"音";d.innerHTML=`<span class="tag">${idx+1}${t}</span><span class="ch">${(c.hanzi||"")+ (c.zhuyin?" "+c.zhuyin:"")}</span>`;d.title=`${idx+1} ${c.type} 點擊選取/取消`;d.onclick=ev=>{ev.stopPropagation();if(S.probe){probeCell(c);return}
+if(S.mergeMode){const i=S.mergeSet.indexOf(c);if(i>=0)S.mergeSet.splice(i,1);else S.mergeSet.push(c);buildCells();render();return}
+c.selected=!c.selected;S.active=c;renderActiveBox();buildCells();render();renderSelTable()};cellLayer.appendChild(d)});$("cellCount").textContent=`已框 ${p.cells.length} 個田字格，已選 ${p.cells.filter(c=>c.selected).length} 格`;renderActiveBox()}
 window.addEventListener("resize",()=>{buildCells();render()});
 // ---------- 自動偵測 ----------
 $("sens").oninput=e=>$("sensV").textContent=e.target.value;
@@ -327,6 +339,7 @@ p.cells.push(...kept);
 // 直式排序：由右而左、由上而下
 sortCellsVertical(p);
 const nBlank=kept.filter(c=>c.blank).length;
+S.mergeSet=[];
 buildCells();render();renderSelTable();renderList();alert(`自動掃描完成：新增 ${kept.length} 個田字格，其中 ${nBlank} 個空白格已自動選取（黃色亮光，會印虛線）；${kept.length-nBlank} 個有字/標籤格僅框出不選（灰色）。訂正大格、標籤條已排除。`)}
 function peaks(arr,th){const out=[],W=12,promT=th*0.5;
 for(let j=0;j<arr.length;j++){if(arr[j]<=th)continue;
@@ -353,13 +366,29 @@ p.cells.push({x:X+c*cw_,y:Y+r*rh_,w:cw_,h:rh_,type:tp,selected:true,hanzi:"",zhu
 else{ // 漢字+右側注音交替：每組=大格+窄格(窄約0.32倍)
 for(let r=0;r<rows;r++){let cx=X;const pairs=Math.floor(cols/2);const rem=cols%2;const unit=W/(pairs*1.32+(rem?1:0));for(let k=0;k<pairs;k++){p.cells.push({x:cx,y:Y+r*rh_,w:unit,h:rh_,type:"hanzi",selected:true,hanzi:"",zhuyin:"",dx:0,dy:0,sc:1});cx+=unit;p.cells.push({x:cx,y:Y+r*rh_,w:unit*0.32,h:rh_,type:"side",selected:true,hanzi:"",zhuyin:"",dx:0,dy:0,sc:1});cx+=unit*0.32}if(rem)p.cells.push({x:cx,y:Y+r*rh_,w:unit,h:rh_,type:"hanzi",selected:true,hanzi:"",zhuyin:"",dx:0,dy:0,sc:1})}}
 S.manualMode=false;$("btnManual").textContent="✏️ 手動框選補格";$("btnManual").classList.remove("primary");sortCellsVertical(p);buildCells();render();renderSelTable();renderList()}
-$("btnClearCells").onclick=()=>{const p=S.pages[S.cur];if(!p)return;if(!confirm("清除本頁全部格子？"))return;p.cells=[];S.active=null;buildCells();render();renderSelTable();renderList()};
+$("btnClearCells").onclick=()=>{const p=S.pages[S.cur];if(!p)return;if(!confirm("清除本頁全部格子？"))return;p.cells=[];S.active=null;S.mergeSet=[];buildCells();render();renderSelTable();renderList()};
 // ---------- 選取 ----------
 $("btnSelAll").onclick=()=>{S.pages[S.cur]?.cells.forEach(c=>c.selected=true);buildCells();render();renderSelTable();renderList()};
 $("btnSelNone").onclick=()=>{S.pages[S.cur]?.cells.forEach(c=>c.selected=false);buildCells();render();renderSelTable();renderList()};
 $("btnSelHanzi").onclick=()=>{S.pages[S.cur]?.cells.forEach(c=>c.selected=(c.type==="hanzi"));buildCells();render();renderSelTable();renderList()};
 $("btnSelZhuyin").onclick=()=>{S.pages[S.cur]?.cells.forEach(c=>c.selected=(c.type!=="hanzi"));buildCells();render();renderSelTable();renderList()};
 $("btnSelBlank").onclick=()=>{S.pages[S.cur]?.cells.forEach(c=>c.selected=(c.auto===true?!!c.blank:!(c.hanzi||c.zhuyin)));buildCells();render();renderSelTable();renderList()};
+// ---------- 格子整併：合併 / 剖半 / 四等分 ----------
+function newTypeByAspect(w,h){return (w/h<0.62)?"side":(S.layoutMode==="pure"?"only":"hanzi")}
+$("btnMergeMode").onclick=()=>{S.mergeMode=!S.mergeMode;S.mergeSet=[];$("btnMergeMode").textContent=S.mergeMode?"合併模式：開（點多格）":"合併模式：關";$("btnMergeMode").classList.toggle("primary",S.mergeMode);buildCells();render()};
+$("btnMergeGo").onclick=()=>{const p=S.pages[S.cur];if(!p)return;S.mergeSet=S.mergeSet.filter(c=>p.cells.indexOf(c)>=0);if(S.mergeSet.length<2){alert("請先開合併模式點選至少兩格");return}
+let x0=1e18,y0=1e18,x1=-1e18,y1=-1e18;for(const c of S.mergeSet){x0=Math.min(x0,c.x);y0=Math.min(y0,c.y);x1=Math.max(x1,c.x+c.w);y1=Math.max(y1,c.y+c.h)}
+p.cells=p.cells.filter(c=>S.mergeSet.indexOf(c)<0);
+const nc={x:x0,y:y0,w:x1-x0,h:y1-y0,type:newTypeByAspect(x1-x0,y1-y0),selected:true,hanzi:"",zhuyin:"",dx:0,dy:0,sc:1,auto:false};
+p.cells.push(nc);S.mergeSet=[];S.active=nc;sortCellsVertical(p);buildCells();render();renderSelTable();renderList()};
+function splitActive(nw,nh){const p=S.pages[S.cur];const c=S.active;if(!p||!c||p.cells.indexOf(c)<0){alert("請先點一格（會出現紅框）再剖");return}
+p.cells.splice(p.cells.indexOf(c),1);
+for(let r=0;r<nh;r++)for(let k=0;k<nw;k++){const w=c.w/nw,h=c.h/nh;
+p.cells.push({x:c.x+k*w,y:c.y+r*h,w,h,type:newTypeByAspect(w,h),selected:true,hanzi:(r===0&&k===0)?c.hanzi:"",zhuyin:(r===0&&k===0)?c.zhuyin:"",dx:0,dy:0,sc:1,auto:false})}
+S.active=null;sortCellsVertical(p);buildCells();render();renderSelTable();renderList()}
+$("btnSplitH").onclick=()=>splitActive(2,1);
+$("btnSplitV").onclick=()=>splitActive(1,2);
+$("btnSplit4").onclick=()=>splitActive(2,2);
 $("btnCopyUp").onclick=()=>{const p=S.pages[S.cur];if(!p)return;let n=0;const cs=[...p.cells].sort((a,b)=>a.y-b.y||a.x-b.x);for(const c of cs){if(!c.selected||c.hanzi||c.zhuyin)continue;const above=cs.filter(k=>Math.abs((k.x+k.w/2)-(c.x+c.w/2))<Math.min(k.w,c.w)*0.5&&k.y+k.h<=c.y+2&&(k.hanzi||k.zhuyin)).pop();if(above){c.hanzi=above.hanzi;c.zhuyin=above.zhuyin;n++}}buildCells();render();renderSelTable();alert(n?`已從上一列複製 ${n} 格`:"找不到上方有字的對應格（請先在上一列輸入漢字/注音，或改用快速填入）")};
 // ---------- 內容 ----------
 $("btnQuickFill").onclick=()=>{const p=S.pages[S.cur];if(!p)return;const s=$("quickHanzi").value.replace(/\s+/g,"");if(!s)return alert("請先輸入漢字串");const sel=p.cells.filter(c=>c.selected&&c.type==="hanzi");if(!sel.length)return alert("請先選取漢字格");sel.forEach((c,i)=>{if(i<s.length)c.hanzi=s[i]});buildCells();render();renderSelTable()};
