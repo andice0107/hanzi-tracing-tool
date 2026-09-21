@@ -80,6 +80,7 @@ kbd{background:#eee;border:1px solid #ccc;border-radius:4px;padding:0 4px;font-s
 <button class="small" id="btnAuto">🔍 自動掃描田字格</button>
 <button class="small" id="btnManual">✏️ 手動框選補格</button>
 <button class="small" id="btnAddOne">＋手拖加一格</button>
+<button class="small" id="btnProbe">🎯 取色探針</button>
 <button class="small" id="btnClearCells">🗑 清除本頁格子</button>
 </div>
 </div>
@@ -108,6 +109,8 @@ kbd{background:#eee;border:1px solid #ccc;border-radius:4px;padding:0 4px;font-s
 <div class="hint" id="activeBox" style="display:none">目前調整：第 <b id="activeNo"></b> 格（<span id="activeType"></span>）
 <div class="row">X<input type="number" id="aX" style="width:62px"> Y<input type="number" id="aY" style="width:62px"> 寬<input type="number" id="aW" style="width:62px"> 高<input type="number" id="aH" style="width:62px"></div>
 <div class="row"><button class="small" id="btnDelCell">刪除此格</button><span style="font-size:11px;color:#888">改數字即時套用</span></div></div>
+<div class="hint" id="probeBox" style="display:none">🎯 <b>取色探針</b>：點格子看墨水數據，點空白處取該點顏色（再按鈕可關）
+<div id="probeOut" style="font-family:monospace;font-size:12px;white-space:pre-wrap"></div></div>
 <h3>4. 虛線微調</h3>
 <div class="row"><label>漢字大小</label><input type="range" id="gScaleH" min="50" max="130" value="92"><span id="gScaleHV">92%</span></div>
 <div class="row"><label>注音大小</label><input type="range" id="gScaleZ" min="50" max="160" value="100"><span id="gScaleZV">100%</span></div>
@@ -130,9 +133,16 @@ kbd{background:#eee;border:1px solid #ccc;border-radius:4px;padding:0 4px;font-s
 <div id="dropHint">📥 放開以加入檔案<span>PDF / 圖片 → 新增作業內頁分頁　・　字體檔（.ttf / .otf / .woff2 / .ttc）→ 加入字體庫</span></div>
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-const S={pages:[],cur:-1,fonts:[{id:"builtin-hanzi",name:"內建漢字虛線字體",family:"BuiltinHanzi",locked:true,loaded:false},{id:"builtin-zhuyin",name:"內建注音虛線字體",family:"BuiltinZhuyin",locked:true,loaded:false}],fontFamHanzi:"BuiltinHanzi",fontFamZhuyin:"BuiltinZhuyin",manualMode:false,layoutMode:"auto",active:null};
+const S={pages:[],cur:-1,fonts:[{id:"builtin-hanzi",name:"內建漢字虛線字體",family:"BuiltinHanzi",locked:true,loaded:false},{id:"builtin-zhuyin",name:"內建注音虛線字體",family:"BuiltinZhuyin",locked:true,loaded:false}],fontFamHanzi:"BuiltinHanzi",fontFamZhuyin:"BuiltinZhuyin",manualMode:false,layoutMode:"auto",active:null,probe:false};
 const $=id=>document.getElementById(id);
 const fileInput=$("fileInput"),fontInput=$("fontInput");
+// 統一墨水（全域共用）：藍字(不論深淺)/深色/鮮色/灰字都算；紙底與暖色陰影排除
+function inkPx(r,g,b){const mn=Math.min(r,g,b),mx=Math.max(r,g,b);
+if(mx<110)return true;
+if(b>90&&b-r>10&&b-g>5)return true;
+if(mx-mn>=40)return true;
+if(250-mx>25&&(mx-mn)<45)return true;
+return false}
 // ---------- 字體（漢字格 / 注音格可各選一種） ----------
 function refreshFonts(){for(const[selId,key]of[["fontHanziSel","fontFamHanzi"],["fontZhuyinSel","fontFamZhuyin"]]){const s=$(selId);s.innerHTML="";S.fonts.forEach(f=>{const o=document.createElement("option");o.value=f.id;o.textContent=f.name+(f.loaded?" ●":" ○未載入");s.appendChild(o)});const cur=S.fonts.find(x=>x.family===S[key]);s.value=cur?cur.id:""}
 $("fontList").innerHTML=S.fonts.map(f=>`• ${f.name} ${f.loaded?'<b style="color:green">已載入</b>':'<b style="color:#c00">未載入</b>'} ${f.locked?'(內建保留)':`<button class="small" data-delfont="${f.id}">刪</button>`}`).join("<br>");
@@ -195,6 +205,20 @@ async function addPDF(f){const buf=await f.arrayBuffer();const pdf=await pdfjsLi
 function renderList(){const L=$("pageList");L.innerHTML="";S.pages.forEach((p,i)=>{const d=document.createElement("div");d.className="page-tab"+(i===S.cur?" active":"");d.innerHTML=`<img src="${p.img.src}"><div><b>${i+1}. ${p.name}</b><br>${p.cells.length} 田字格 / ${p.cells.filter(c=>c.selected).length} 已選</div>`;d.onclick=()=>switchPage(i);L.appendChild(d)})}
 function switchPage(i){S.cur=i;S.active=null;const p=S.pages[i];if(!p)return;$("pageTitle").textContent=`第 ${i+1} 頁 / 共 ${S.pages.length} 頁 — ${p.name}`;$("pageImg").src=p.img.src;renderList();$("pageImg").onload=()=>{buildCells();render()}}
 // ---------- 顯示/疊加 ----------
+// ---------- 取色探針（回報墨水實測值用，不影響格子） ----------
+$("btnProbe").onclick=()=>{S.probe=!S.probe;$("btnProbe").classList.toggle("primary",S.probe);$("probeBox").style.display=S.probe?"block":"none";if(S.probe)$("probeOut").textContent="已開啟：點任一格看數據，點圖上空白處取該點顏色。"};
+cellLayer.addEventListener("click",e=>{if(!S.probe||e.target!==cellLayer)return;const r=$("viewerWrap").getBoundingClientRect();probePixel(e.clientX-r.left,e.clientY-r.top)});
+function probeAnalyze(){const p=S.pages[S.cur];if(!p)return null;const maxW=900,sc=Math.min(1,maxW/p.w);const cw=Math.round(p.w*sc),ch=Math.round(p.h*sc);const cv=document.createElement("canvas");cv.width=cw;cv.height=ch;const ctx=cv.getContext("2d",{willReadFrequently:true});ctx.drawImage(p.img,0,0,cw,ch);return{p,cw,ch,sc,d:ctx.getImageData(0,0,cw,ch).data}}
+function probeCell(c){const a=probeAnalyze();if(!a)return;const ix0=Math.max(0,Math.ceil(c.x*a.sc)),ix1=Math.min(a.cw-1,Math.floor((c.x+c.w)*a.sc)),iy0=Math.max(0,Math.ceil(c.y*a.sc)),iy1=Math.min(a.ch-1,Math.floor((c.y+c.h)*a.sc));
+const all=[];let ink=0,blue=0,n=0;
+for(let y=iy0;y<=iy1;y++)for(let x=ix0;x<=ix1;x++){const R=a.d[(y*a.cw+x)*4],G=a.d[(y*a.cw+x)*4+1],B=a.d[(y*a.cw+x)*4+2];n++;if(inkPx(R,G,B))ink++;if(B>90&&B-R>10&&B-G>5)blue++;all.push([R+G+B,R,G,B])}
+all.sort((p,q)=>p[0]-q[0]);const k=Math.max(1,Math.floor(all.length*0.1));let r=0,g=0,b=0;for(let i=0;i<k;i++){r+=all[i][1];g+=all[i][2];b+=all[i][3]}r=Math.round(r/k);g=Math.round(g/k);b=Math.round(b/k);
+const idx=S.pages[S.cur].cells.indexOf(c);
+$("probeOut").innerHTML=`第${idx+1}格(${c.type}) 掃描判定：${c.blank===undefined?"未掃描":c.blank?"空白(黃)":"有字(灰)"} res=${c.res===undefined?"?":c.res.toFixed(3)} blue=${c.blue===undefined?"?":c.blue.toFixed(3)}\n實測：墨水率=${(ink/n*100).toFixed(1)}% 藍量=${(blue/n*100).toFixed(1)}%\n最深10%平均色：<span style="display:inline-block;width:44px;height:16px;background:rgb(${r},${g},${b});border:1px solid #000;vertical-align:middle"></span> rgb(${r},${g},${b})\n→ 把 rgb 值貼給我，我按數據調門檻。`}
+function probePixel(vx,vy){const a=probeAnalyze();if(!a)return;const s=pageImg.clientWidth/pageImg.naturalWidth;const fx=Math.round(vx/s*a.sc),fy=Math.round(vy/s*a.sc);
+let r=0,g=0,b=0,n=0;for(let y=fy-2;y<=fy+2;y++)for(let x=fx-2;x<=fx+2;x++){if(x<0||y<0||x>=a.cw||y>=a.ch)continue;n++;r+=a.d[(y*a.cw+x)*4];g+=a.d[(y*a.cw+x)*4+1];b+=a.d[(y*a.cw+x)*4+2]}
+r=Math.round(r/n);g=Math.round(g/n);b=Math.round(b/n);
+$("probeOut").innerHTML=`取點：<span style="display:inline-block;width:44px;height:16px;background:rgb(${r},${g},${b});border:1px solid #000;vertical-align:middle"></span> rgb(${r},${g},${b})\n→ 把 rgb 值貼給我，我按數據調門檻。`}
 // 直式排序：國語作業由右而左、由上而下。欄由右排到左，欄內由上而下
 function sortCellsVertical(p){if(!p.cells.length)return;
 const ws=p.cells.map(c=>c.w).sort((a,b)=>a-b);const medW=ws[Math.floor(ws.length/2)]||20;
@@ -206,7 +230,7 @@ p.cells.sort((a,b)=>(a._col-b._col)||(a.y-b.y)||(a.x-b.x));
 p.cells.forEach(c=>delete c._col)}
 const pageImg=$("pageImg"),overlay=$("overlay"),cellLayer=$("cellLayer");
 function viewScale(){return pageImg.clientWidth/pageImg.naturalWidth||1}
-function buildCells(){cellLayer.innerHTML="";const p=S.pages[S.cur];if(!p)return;const s=viewScale();overlay.width=pageImg.clientWidth;overlay.height=pageImg.clientHeight;p.cells.forEach((c,idx)=>{const d=document.createElement("div");const cls=c.selected?"selected":(c.auto===true?(c.blank?"auto":"filled"):"auto");d.className="cell "+cls;d.style.left=(c.x*s)+"px";d.style.top=(c.y*s)+"px";d.style.width=(c.w*s)+"px";d.style.height=(c.h*s)+"px";const t=c.type==="hanzi"?"漢":c.type==="side"?"注":"音";d.innerHTML=`<span class="tag">${idx+1}${t}</span><span class="ch">${(c.hanzi||"")+ (c.zhuyin?" "+c.zhuyin:"")}</span>`;d.title=`${idx+1} ${c.type} 點擊選取/取消`;d.onclick=ev=>{ev.stopPropagation();c.selected=!c.selected;S.active=c;renderActiveBox();buildCells();render();renderSelTable()};cellLayer.appendChild(d)});$("cellCount").textContent=`已框 ${p.cells.length} 個田字格，已選 ${p.cells.filter(c=>c.selected).length} 格`;renderActiveBox()}
+function buildCells(){cellLayer.innerHTML="";const p=S.pages[S.cur];if(!p)return;const s=viewScale();overlay.width=pageImg.clientWidth;overlay.height=pageImg.clientHeight;p.cells.forEach((c,idx)=>{const d=document.createElement("div");const cls=c.selected?"selected":(c.auto===true?(c.blank?"auto":"filled"):"auto");d.className="cell "+cls;d.style.left=(c.x*s)+"px";d.style.top=(c.y*s)+"px";d.style.width=(c.w*s)+"px";d.style.height=(c.h*s)+"px";const t=c.type==="hanzi"?"漢":c.type==="side"?"注":"音";d.innerHTML=`<span class="tag">${idx+1}${t}</span><span class="ch">${(c.hanzi||"")+ (c.zhuyin?" "+c.zhuyin:"")}</span>`;d.title=`${idx+1} ${c.type} 點擊選取/取消`;d.onclick=ev=>{ev.stopPropagation();if(S.probe){probeCell(c);return}c.selected=!c.selected;S.active=c;renderActiveBox();buildCells();render();renderSelTable()};cellLayer.appendChild(d)});$("cellCount").textContent=`已框 ${p.cells.length} 個田字格，已選 ${p.cells.filter(c=>c.selected).length} 格`;renderActiveBox()}
 window.addEventListener("resize",()=>{buildCells();render()});
 // ---------- 自動偵測 ----------
 $("sens").oninput=e=>$("sensV").textContent=e.target.value;
@@ -264,12 +288,6 @@ cells.length=0;cells.push(...out)
 // 純正方版式：拆完再砍窄條（先砍會誤殺待拆的併格）
 if(S.layoutMode==="pure"||S.layoutMode==="purehanzi")for(let i=cells.length-1;i>=0;i--)if(cells[i].w/cells[i].h<0.62)cells.splice(i,1)}
 // 統一墨水：藍字(不論深淺，淺藍範例字也算)/深色/鮮色/灰字都算；紙底與暖色陰影排除
-function inkPx(r,g,b){const mn=Math.min(r,g,b),mx=Math.max(r,g,b);
-if(mx<110)return true;
-if(b>90&&b-r>18&&b-g>6)return true;
-if(mx-mn>=40)return true;
-if(250-mx>25&&(mx-mn)<45)return true;
-return false}
 function overallRes(c){const ax=c.x*sc,ay=c.y*sc,aw=c.w*sc,ah=c.h*sc;
 const ix0=Math.ceil(ax+aw*0.15),ix1=Math.floor(ax+aw*0.85),iy0=Math.ceil(ay+ah*0.15),iy1=Math.floor(ay+ah*0.85);
 let m=0,n=0;for(let y=iy0;y<=iy1;y++)for(let x=ix0;x<=ix1;x++){n++;const[R,G,B]=pxAt(x,y);if(inkPx(R,G,B))m++}return n?m/n:0}
@@ -293,24 +311,26 @@ for(const v of fb){if(run.length&&v-run[run.length-1]>1){if(run.length<4)out.pus
 if(run.length<4)out.push(...run);return out}
 if(!bX0.length)bX.push(...fbScan(true,ix0,ix1,colF));
 if(!bY0.length)bY.push(...fbScan(false,iy0,iy1,rowF));
-let ink=0,tot=0,blue=0,blueN=0;
-for(let y=iy0;y<=iy1;y++)for(let x=ix0;x<=ix1;x++){const[R,G,B]=pxAt(x,y);blueN++;if(B>90&&B-R>18&&B-G>6)blue++}
+let ink=0,tot=0,blue=0,blueN=0,darkTop=0,midInk=0;
+const topLim=iy0+(iy1-iy0+1)*0.3,mid0=iy0+(iy1-iy0+1)*0.45,mid1=iy0+(iy1-iy0+1)*0.9;
+for(let y=iy0;y<=iy1;y++)for(let x=ix0;x<=ix1;x++){const[R,G,B]=pxAt(x,y);blueN++;if(B>90&&B-R>10&&B-G>5)blue++}
 blue=blueN?blue/blueN:0;
 for(let y=iy0;y<=iy1;y++){const yB=bY.some(dy=>Math.abs(y-dy)<=1);
 for(let x=ix0;x<=ix1;x++){if(yB)continue;if(bX.some(dx=>Math.abs(x-dx)<=1))continue;tot++;
 const[R,G,B]=pxAt(x,y);
-if(inkPx(R,G,B))ink++}}
+if(inkPx(R,G,B)){ink++;if(y<topLim&&Math.max(R,G,B)<110)darkTop++;if(y>=mid0&&y<=mid1)midInk++}}}
 let res=tot?ink/tot:0;
+darkTop=tot?darkTop/tot:0;midInk=tot?midInk/tot:0;
 let duty=0;
 for(const dy of bY)for(let r=-1;r<=1;r++){const y=dy+r;if(y<iy0||y>iy1)continue;let m=0,n=0;for(let x=ix0;x<=ix1;x++){n++;const[R,G,B]=pxAt(x,y);if(inkPx(R,G,B))m++}if(n)duty=Math.max(duty,m/n)}
 for(const dx of bX)for(let r=-1;r<=1;r++){const x=dx+r;if(x<ix0||x>ix1)continue;let m=0,n=0;for(let y=iy0;y<=iy1;y++){n++;const[R,G,B]=pxAt(x,y);if(inkPx(R,G,B))m++}if(n)duty=Math.max(duty,m/n)}
-return{tint,res,duty,blue,overall:overallRes(c)}}
-for(const c of cells){const s=cellStats(c);c.tint=s.tint;c.res=s.res;c.blue=s.blue;c.overall=s.overall;c.blank=s.tint<=0.35&&s.res<0.05&&s.duty<0.85;c.selected=!!c.blank}
-// 整頁有藍色印刷/虛線時，無藍格子不是書寫格（示範黑字、說明文字、圖畫、標籤條一律丟掉）
+return{tint,res,duty,blue,darkTop,midInk,overall:overallRes(c)}}
+for(const c of cells){const s=cellStats(c);c.tint=s.tint;c.res=s.res;c.blue=s.blue;c.darkTop=s.darkTop;c.midInk=s.midInk;c.overall=s.overall;c.blank=s.tint<=0.35&&s.res<0.05&&s.duty<0.85;c.selected=!!c.blank}
+// 整頁有藍色印刷/虛線時，無藍格子不是書寫格（示範黑字、說明文字、圖畫一律丟掉）
 if(cells.some(c=>c.blue>=0.05))for(let i=cells.length-1;i>=0;i--)if(cells[i].blue<0.02)cells.splice(i,1);
-// 自動模式去窄條：整頁窄條都沒藍 → 不是注音格，整批不要（剩下的藍窄格是合法右注音）
-if(S.layoutMode==="auto"){const nar=cells.filter(c=>c.w/c.h<0.62);
-if(nar.length&&Math.max(...nar.map(c=>c.blue),0)<0.03)for(let i=nar.length-1;i>=0;i--)if(nar[i].res<0.10)cells.splice(cells.indexOf(nar[i]),1)}
+// 自動模式去窄條：頂黑標＋中段無墨＝標籤欄（書寫窄格是藍注音或整格黑字，不會長這樣）
+if(S.layoutMode==="auto")for(let i=cells.length-1;i>=0;i--){const c=cells[i];
+if(c.w/c.h<0.62&&(c.darkTop||0)>0.03&&(c.midInk||0)<0.05)cells.splice(i,1)}
 // 合併既有（避免重複）：兩格重疊一半以上視為同一格（重掃線條差 1~2px 也不會疊格）
 const kept=[];for(const c of cells){let dup=false;
 for(const k of p.cells){const ix0=Math.max(c.x,k.x),iy0=Math.max(c.y,k.y),ix1=Math.min(c.x+c.w,k.x+k.w),iy1=Math.min(c.y+c.h,k.y+k.h);
